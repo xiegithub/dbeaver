@@ -102,6 +102,8 @@
         <module>org.jkiss.dbeaver.net.ssh.jsch</module>
         <module>org.jkiss.dbeaver.net.ssh.sshj</module>
         <module>org.jkiss.dbeaver.net.ssh.ui</module>
+		
+		<module>org.jkiss.dbeaver.cloud.git</module>
 
     </modules>
 
