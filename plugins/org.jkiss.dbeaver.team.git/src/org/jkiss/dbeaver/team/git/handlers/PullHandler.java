@@ -21,8 +21,13 @@ package org.jkiss.dbeaver.team.git.handlers;
 import java.util.Map;
 
 import org.eclipse.core.commands.AbstractHandler;
+import org.eclipse.core.commands.Command;
 import org.eclipse.core.commands.ExecutionEvent;
 import org.eclipse.core.commands.ExecutionException;
+import org.eclipse.ui.IWorkbenchWindow;
+import org.eclipse.ui.commands.ICommandService;
+import org.eclipse.ui.handlers.HandlerUtil;
+import org.eclipse.ui.handlers.IHandlerService;
 
 
 
@@ -32,7 +37,23 @@ public class PullHandler extends AbstractHandler {
 
     @Override
     public Object execute(ExecutionEvent event) throws ExecutionException {
-        // org.eclipse.egit.ui.team.Pull
+        
+        IWorkbenchWindow window = HandlerUtil.getActiveWorkbenchWindowChecked(event);
+        
+        IHandlerService handlerService = window.getService(IHandlerService.class);
+        //ICommandService commandService = window.getService(ICommandService.class);
+        
+        //Command pushCommand = commandService.getCommand("org.eclipse.egit.ui.team.Pull");
+        
+        //pushCommand.getHandler().execute(event);
+        
+        try {
+            handlerService.executeCommand("org.eclipse.egit.ui.team.Pull", null);
+        } catch (Exception ex) {
+            throw new RuntimeException("error execute Push");
+        }
+        
+
         return null;
     }
 
