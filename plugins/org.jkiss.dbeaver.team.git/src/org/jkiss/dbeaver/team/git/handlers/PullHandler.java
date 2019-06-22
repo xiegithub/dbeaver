@@ -18,14 +18,10 @@
 
 package org.jkiss.dbeaver.team.git.handlers;
 
-import java.util.Map;
-
 import org.eclipse.core.commands.AbstractHandler;
-import org.eclipse.core.commands.Command;
 import org.eclipse.core.commands.ExecutionEvent;
 import org.eclipse.core.commands.ExecutionException;
 import org.eclipse.ui.IWorkbenchWindow;
-import org.eclipse.ui.commands.ICommandService;
 import org.eclipse.ui.handlers.HandlerUtil;
 import org.eclipse.ui.handlers.IHandlerService;
 
@@ -33,7 +29,7 @@ import org.eclipse.ui.handlers.IHandlerService;
 
 public class PullHandler extends AbstractHandler {
 
-
+    private static final String CMD_PULL = "org.eclipse.egit.ui.team.Pull";
 
     @Override
     public Object execute(ExecutionEvent event) throws ExecutionException {
@@ -48,7 +44,10 @@ public class PullHandler extends AbstractHandler {
         //pushCommand.getHandler().execute(event);
         
         try {
-            handlerService.executeCommand("org.eclipse.egit.ui.team.Pull", null);
+            handlerService.executeCommand(CMD_PULL, null);
+            //ParameterizedCommand pc = new ParameterizedCommand(commitCommand, null);
+            //handlerService.executeCommandInContext(pc, null, context);
+            
         } catch (Exception ex) {
             throw new RuntimeException("error execute Push");
         }

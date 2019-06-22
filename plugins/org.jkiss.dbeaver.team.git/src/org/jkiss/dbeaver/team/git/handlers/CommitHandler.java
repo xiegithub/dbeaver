@@ -36,33 +36,19 @@ import org.eclipse.ui.handlers.IHandlerService;
 
 public class CommitHandler  extends AbstractHandler{
 
+    private static final String CMD_COMMIT = "org.eclipse.egit.ui.team.Commit";
+
     @Override
     public Object execute(ExecutionEvent event) throws ExecutionException {
 
         IWorkbenchWindow window = HandlerUtil.getActiveWorkbenchWindowChecked(event);
         
         IHandlerService handlerService = window.getService(IHandlerService.class);
-        ICommandService commandService = window.getService(ICommandService.class);
+          
         
-        Command commitCommand = commandService.getCommand("org.eclipse.egit.ui.team.Commit");
-        
-        //pushCommand.getHandler().execute(event);
-        
-        //org.eclipse.egit.ui.team.OpenCommit
-        //org.eclipse.egit.ui.team.Commit
-        
-        
-      final IProject projectToCommit = ResourcesPlugin.getWorkspace().getRoot().getProject("General");
-      
-      ISelection prjSelection = new StructuredSelection(projectToCommit);
-      
-      IEvaluationContext context = new EvaluationContext(
-              handlerService.createContextSnapshot(false), prjSelection);
-        
+          
         try {
-            handlerService.executeCommand("org.eclipse.egit.ui.team.Commit", null);
-            //ParameterizedCommand pc = new ParameterizedCommand(commitCommand, null);
-            //handlerService.executeCommandInContext(pc, null, context);
+            handlerService.executeCommand(CMD_COMMIT, null);
         } catch (Exception ex) {
             throw new RuntimeException("error execute Commit");
         }

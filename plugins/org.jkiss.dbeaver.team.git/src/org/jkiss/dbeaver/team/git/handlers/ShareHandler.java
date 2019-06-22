@@ -15,7 +15,12 @@ import org.eclipse.ui.handlers.IHandlerService;
 public class ShareHandler extends AbstractHandler {
     
  
-	@Override
+	/**
+     * 
+     */
+    private static final String CMD_SHARE = "org.eclipse.egit.ui.command.shareProject";
+
+    @Override
 	public Object execute(ExecutionEvent event) throws ExecutionException {
 	    
 	    IWorkbenchWindow window = HandlerUtil.getActiveWorkbenchWindowChecked(event);
@@ -23,7 +28,7 @@ public class ShareHandler extends AbstractHandler {
 	    IHandlerService handlerService = window.getService(IHandlerService.class);
 	    ICommandService commandService = window.getService(ICommandService.class);
 	    
-	    Command shareCommand = commandService.getCommand("org.eclipse.egit.ui.command.shareProject");
+	    Command shareCommand = commandService.getCommand(CMD_SHARE);
 	    
 	    Parameterization[] params = new Parameterization[1];
 	    
@@ -44,43 +49,6 @@ public class ShareHandler extends AbstractHandler {
             throw new RuntimeException("error execute share");
             // Give message
         }
-	    
-	    //final IProject projectToShare = ResourcesPlugin.getWorkspace().getRoot().getProject("General");
-//	    
-//	    Map<String, String> params = new HashMap<>(1);
-//	    
-//	    params.put(PROJECT_NAME_PARAMETER, "General");
-//	    
-//	    ExecutionEvent shareEvent = new ExecutionEvent(params, event.getTrigger(), event.getApplicationContext());
-//	    
-//	    try {
-//	        handlerService.executeCommand("shareEvent",shareEvent);
-//	        } catch (Exception ex) {
-//	            throw new RuntimeException("");
-//	            // Give message
-//	            }
-	    
-	    
-	    
-	    //IHandlerService handlerService = (IHandlerService) getSite().getService(IHandlerService.class);
-	    
-	    //event.getApplicationContext()
-	    
-//		IWorkbenchWindow window = HandlerUtil.getActiveWorkbenchWindowChecked(event);
-//		
-//		final String projectName = event.getParameter(PROJECT_NAME_PARAMETER);
-//        final IProject projectToShare = ResourcesPlugin.getWorkspace()
-//                .getRoot().getProject("General");
-//        IWorkbench workbench = HandlerUtil.getActiveWorkbenchWindow(event)
-//                .getWorkbench();
-//
-//        final SharingWizard wizard = new SharingWizard();
-//        wizard.init(workbench, projectToShare);
-//        final Shell shell = HandlerUtil.getActiveShell(event);
-//        WizardDialog wizardDialog = new WizardDialog(shell, wizard);
-//        wizardDialog.setHelpAvailable(false);
-//        wizardDialog.open();
-//        return null;
 	    
 	    return null;
 		
