@@ -16,38 +16,28 @@
  * limitations under the License.
  */
 
-package org.jkiss.dbeaver.cloud.git.handlers;
+package org.jkiss.dbeaver.team.git;
 
-import org.eclipse.core.commands.IParameter;
-import org.eclipse.core.commands.IParameterValues;
-import org.eclipse.core.commands.ParameterValuesException;
+import org.eclipse.core.runtime.CoreException;
+import org.eclipse.core.runtime.Plugin;
+import org.jkiss.dbeaver.Log;
+import org.osgi.framework.BundleContext;
 
-public class ShareParameter implements IParameter {
+public class Activator extends Plugin {
     
-    private static final String ID = "org.eclipse.egit.ui.command.projectNameParameter"; //$NON-NLS-1$
-
-    private static final String PROJECT_NAME_PARAMETER = "Project"; //$NON-NLS-1$
+    private static final Log log = Log.getLog(Activator.class);
 
 
     @Override
-    public String getId() {
-        return ID;
+    public void startup() throws CoreException {
+        //super.startup();
+        log.info("Activator git startup");
     }
 
     @Override
-    public String getName() {
-
-        return PROJECT_NAME_PARAMETER;
-    }
-
-    @Override
-    public IParameterValues getValues() throws ParameterValuesException {
-        return null;
-    }
-
-    @Override
-    public boolean isOptional() {
-        return false;
+    public void start(BundleContext context) throws Exception {
+        //super.start(context);
+        log.info("Activator git start");
     }
 
 }

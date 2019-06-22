@@ -16,7 +16,7 @@
  * limitations under the License.
  */
 
-package org.jkiss.dbeaver.cloud.git.handlers;
+package org.jkiss.dbeaver.team.git.handlers;
 
 import java.util.HashMap;
 import java.util.Map;

@@ -1,4 +1,4 @@
-package org.jkiss.dbeaver.cloud.git.handlers;
+package org.jkiss.dbeaver.team.git.handlers;
 
 import org.eclipse.core.commands.AbstractHandler;
 import org.eclipse.core.commands.Command;
@@ -12,7 +12,7 @@ import org.eclipse.ui.commands.ICommandService;
 import org.eclipse.ui.handlers.HandlerUtil;
 import org.eclipse.ui.handlers.IHandlerService;
 
-public class CloudHandler extends AbstractHandler {
+public class ShareHandler extends AbstractHandler {
     
  
 	@Override

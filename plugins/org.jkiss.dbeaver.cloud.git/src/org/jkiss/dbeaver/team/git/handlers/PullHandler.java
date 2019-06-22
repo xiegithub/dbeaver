@@ -16,28 +16,24 @@
  * limitations under the License.
  */
 
-package org.jkiss.dbeaver.cloud.git;
+package org.jkiss.dbeaver.team.git.handlers;
 
-import org.eclipse.core.runtime.CoreException;
-import org.eclipse.core.runtime.Plugin;
-import org.jkiss.dbeaver.Log;
-import org.osgi.framework.BundleContext;
+import java.util.Map;
 
-public class Activator extends Plugin {
-    
-    private static final Log log = Log.getLog(Activator.class);
+import org.eclipse.core.commands.AbstractHandler;
+import org.eclipse.core.commands.ExecutionEvent;
+import org.eclipse.core.commands.ExecutionException;
 
 
-    @Override
-    public void startup() throws CoreException {
-        //super.startup();
-        log.info("Activator git startup");
-    }
+
+public class PullHandler extends AbstractHandler {
+
+
 
     @Override
-    public void start(BundleContext context) throws Exception {
-        //super.start(context);
-        log.info("Activator git start");
+    public Object execute(ExecutionEvent event) throws ExecutionException {
+        // org.eclipse.egit.ui.team.Pull
+        return null;
     }
 
 }

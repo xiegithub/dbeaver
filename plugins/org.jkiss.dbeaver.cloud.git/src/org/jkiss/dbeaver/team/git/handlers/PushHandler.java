@@ -16,7 +16,7 @@
  * limitations under the License.
  */
 
-package org.jkiss.dbeaver.cloud.git.handlers;
+package org.jkiss.dbeaver.team.git.handlers;
 
 import org.eclipse.core.commands.AbstractHandler;
 import org.eclipse.core.commands.Command;
@@ -45,7 +45,6 @@ public class PushHandler extends AbstractHandler{
             handlerService.executeCommand("org.eclipse.egit.ui.team.Push", null);
         } catch (Exception ex) {
             throw new RuntimeException("error execute Push");
-            // Give message
         }
         
         return null;
