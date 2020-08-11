@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -37,7 +37,6 @@ import org.jkiss.dbeaver.model.struct.DBSEntity;
 import org.jkiss.dbeaver.model.struct.DBSTypedObjectEx;
 import org.jkiss.utils.CommonUtils;
 
-import java.util.Collection;
 import java.util.Comparator;
 import java.util.Set;
 import java.util.TreeSet;
@@ -60,7 +59,6 @@ public abstract class PostgreAttribute<OWNER extends DBSEntity & PostgreObject> 
     @Nullable
     private PostgreAttributeIdentity identity;
     private boolean isLocal;
-    private long objectId;
     private long collationId;
     private Object acl;
 
@@ -68,6 +66,7 @@ public abstract class PostgreAttribute<OWNER extends DBSEntity & PostgreObject> 
         OWNER table)
     {
         super(table, false);
+        this.isLocal = true;
     }
 
     public PostgreAttribute(
@@ -79,15 +78,51 @@ public abstract class PostgreAttribute<OWNER extends DBSEntity & PostgreObject> 
         loadInfo(monitor, dbResult);
     }
 
+    public PostgreAttribute(
+        DBRProgressMonitor monitor,
+        OWNER table,
+        PostgreAttribute source)
+        throws DBException
+    {
+        super(table, source, true);
+
+        this.dataType = source.dataType;
+        this.comment = source.comment;
+        this.charLength = source.charLength;
+        this.arrayDim = source.arrayDim;
+        this.inheritorsCount = source.inheritorsCount;
+        this.description = source.description;
+        this.identity = source.identity;
+        this.isLocal = source.isLocal;
+        this.collationId = source.collationId;
+        this.acl = source.acl;
+    }
+
+    @NotNull
     @Override
     public PostgreDatabase getDatabase() {
         return getTable().getDatabase();
     }
 
-    @Property(viewable = false, order = 26)
     @Override
     public long getObjectId() {
-        return objectId;
+        return getOrdinalPosition();
+    }
+
+    @Override
+    public void setMaxLength(long maxLength) {
+        super.setMaxLength(maxLength);
+        if (getDataKind() == DBPDataKind.STRING && this.precision != null) {
+            this.precision = (int)maxLength;
+        }
+    }
+
+    @Override
+    public void setPrecision(Integer precision) {
+        super.setPrecision(precision);
+        if (getDataKind() == DBPDataKind.STRING) {
+            this.maxLength = precision;
+        }
     }
 
     private void loadInfo(DBRProgressMonitor monitor, JDBCResultSet dbResult)
@@ -98,7 +133,6 @@ public abstract class PostgreAttribute<OWNER extends DBSEntity & PostgreObject> 
         setName(JDBCUtils.safeGetString(dbResult, "attname"));
         setOrdinalPosition(JDBCUtils.safeGetInt(dbResult, "attnum"));
         setRequired(JDBCUtils.safeGetBoolean(dbResult, "attnotnull"));
-        objectId = JDBCUtils.safeGetLong(dbResult, "attr_id");
         final long typeId = JDBCUtils.safeGetLong(dbResult, "atttypid");
         dataType = getTable().getDatabase().getDataType(monitor, typeId);
         if (dataType == null) {

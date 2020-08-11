@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,6 +21,7 @@ import org.jkiss.code.Nullable;
 import org.jkiss.dbeaver.DBException;
 import org.jkiss.dbeaver.ext.postgresql.PostgreUtils;
 import org.jkiss.dbeaver.model.DBPEvaluationContext;
+import org.jkiss.dbeaver.model.DBPHiddenObject;
 import org.jkiss.dbeaver.model.DBUtils;
 import org.jkiss.dbeaver.model.exec.jdbc.JDBCSession;
 import org.jkiss.dbeaver.model.impl.jdbc.JDBCUtils;
@@ -39,7 +40,7 @@ import java.util.Map;
 /**
  * PostgreIndex
  */
-public class PostgreIndex extends JDBCTableIndex<PostgreSchema, PostgreTableBase> implements PostgreObject, PostgreScriptObject {
+public class PostgreIndex extends JDBCTableIndex<PostgreSchema, PostgreTableBase> implements PostgreObject, PostgreScriptObject, DBPHiddenObject {
     private long indexId;
     private boolean isUnique;
     private boolean isPrimary; // Primary index - implicit
@@ -62,7 +63,7 @@ public class PostgreIndex extends JDBCTableIndex<PostgreSchema, PostgreTableBase
 
     public PostgreIndex(DBRProgressMonitor monitor, PostgreTableBase parent, String indexName, ResultSet dbResult) throws DBException {
         super(
-            parent.getContainer(),
+            parent.getContainer().getSchema(),
             parent,
             indexName,
             DBSIndexType.UNKNOWN,
@@ -99,7 +100,7 @@ public class PostgreIndex extends JDBCTableIndex<PostgreSchema, PostgreTableBase
     }
 
     public PostgreIndex(PostgreTableBase parent, String name, DBSIndexType indexType, boolean unique) {
-        super(parent.getContainer(), parent, name, indexType, false);
+        super(parent.getContainer().getSchema(), parent, name, indexType, false);
         this.isUnique = unique;
     }
 
@@ -109,6 +110,7 @@ public class PostgreIndex extends JDBCTableIndex<PostgreSchema, PostgreTableBase
         return getTable().getDataSource();
     }
 
+    @NotNull
     @Override
     public PostgreDatabase getDatabase() {
         return getTable().getDatabase();
@@ -257,6 +259,13 @@ public class PostgreIndex extends JDBCTableIndex<PostgreSchema, PostgreTableBase
     @Override
     public void setObjectDefinitionText(String sourceText) {
 
+    }
+
+    @Override
+    public boolean isHidden() {
+        // We show all indexes (#8126)
+        return false;
+        //return isPrimaryKeyIndex;
     }
 
     @Override

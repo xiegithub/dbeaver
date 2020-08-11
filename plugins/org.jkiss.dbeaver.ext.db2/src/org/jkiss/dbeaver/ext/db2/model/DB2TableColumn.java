@@ -1,7 +1,7 @@
 /*
  * DBeaver - Universal Database Manager
  * Copyright (C) 2013-2016 Denis Forveille (titou10.titou10@gmail.com)
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,8 +17,6 @@
  */
 package org.jkiss.dbeaver.ext.db2.model;
 
-import java.sql.ResultSet;
-
 import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
 import org.jkiss.dbeaver.DBException;
@@ -31,7 +29,6 @@ import org.jkiss.dbeaver.ext.db2.model.dict.DB2YesNo;
 import org.jkiss.dbeaver.model.DBPDataKind;
 import org.jkiss.dbeaver.model.DBPEvaluationContext;
 import org.jkiss.dbeaver.model.DBPHiddenObject;
-import org.jkiss.dbeaver.model.DBPNamedObject2;
 import org.jkiss.dbeaver.model.impl.DBPositiveNumberTransformer;
 import org.jkiss.dbeaver.model.impl.jdbc.JDBCUtils;
 import org.jkiss.dbeaver.model.impl.jdbc.struct.JDBCTableColumn;
@@ -42,13 +39,15 @@ import org.jkiss.dbeaver.model.struct.DBSTypedObjectEx;
 import org.jkiss.dbeaver.model.struct.rdb.DBSTableColumn;
 import org.jkiss.utils.CommonUtils;
 
+import java.sql.ResultSet;
+
 /**
  * DB2 Table Column
  * 
  * @author Denis Forveille
  */
 public class DB2TableColumn extends JDBCTableColumn<DB2TableBase>
-    implements DBSTableColumn, DBSTypedObjectEx, DBPHiddenObject, DBPNamedObject2 {
+    implements DBSTableColumn, DBSTypedObjectEx, DBPHiddenObject {
 
     private DB2DataType dataType;
     private DB2Schema dataTypeSchema;
@@ -63,7 +62,8 @@ public class DB2TableColumn extends JDBCTableColumn<DB2TableBase>
     private String rowEnd;
     private String transactionStartId;
     private String collationSchema;
-    private String collationNane;
+    private String collationName;
+    private int codePage;
 
     private String typeStringUnits;
     private Integer stringUnitsLength;
@@ -117,9 +117,10 @@ public class DB2TableColumn extends JDBCTableColumn<DB2TableBase>
 
         this.remarks = JDBCUtils.safeGetString(dbResult, "REMARKS");
 
+        this.codePage = JDBCUtils.safeGetInt(dbResult, "CODEPAGE");
         if (db2DataSource.isAtLeastV9_5()) {
             this.collationSchema = JDBCUtils.safeGetStringTrimmed(dbResult, "COLLATIONSCHEMA");
-            this.collationNane = JDBCUtils.safeGetString(dbResult, "COLLATIONNAME");
+            this.collationName = JDBCUtils.safeGetString(dbResult, "COLLATIONNAME");
             this.nbQuantiles = JDBCUtils.safeGetInteger(dbResult, "NQUANTILES");
             this.nbMostFreq = JDBCUtils.safeGetInteger(dbResult, "NMOSTFREQ");
         }
@@ -168,10 +169,12 @@ public class DB2TableColumn extends JDBCTableColumn<DB2TableBase>
         setMaxLength(50L);
         setOrdinalPosition(-1);
         this.dataType = tableBase.getDataSource().getDataTypeCache().getCachedObject("VARCHAR");
-        this.dataTypeSchema = dataType.getSchema();
-        setTypeName(dataType.getFullyQualifiedName(DBPEvaluationContext.DML));
-        setValueType(dataType.getTypeID());
-        setRequired(true);
+        if (dataType != null) {
+            this.dataTypeSchema = dataType.getSchema();
+            setTypeName(dataType.getFullyQualifiedName(DBPEvaluationContext.DML));
+            setValueType(dataType.getTypeID());
+        }
+        setRequired(false);
     }
 
     // -----------------
@@ -208,7 +211,11 @@ public class DB2TableColumn extends JDBCTableColumn<DB2TableBase>
     @Override
     public DBPDataKind getDataKind()
     {
-        return dataType.getDataKind();
+        DBPDataKind dataKind = dataType.getDataKind();
+        if (dataKind == DBPDataKind.STRING && this.codePage == 0) {
+            return DBPDataKind.CONTENT; // FOR BIT DATA
+        }
+        return dataKind;
     }
 
     @Override
@@ -439,9 +446,9 @@ public class DB2TableColumn extends JDBCTableColumn<DB2TableBase>
     }
 
     @Property(viewable = false, order = 181, category = DB2Constants.CAT_COLLATION)
-    public String getCollationNane()
+    public String getcollationName()
     {
-        return collationNane;
+        return collationName;
     }
 
 }

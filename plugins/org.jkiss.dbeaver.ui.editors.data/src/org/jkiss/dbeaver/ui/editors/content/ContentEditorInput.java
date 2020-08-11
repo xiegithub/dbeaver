@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -34,12 +34,12 @@ import org.jkiss.dbeaver.model.data.DBDContent;
 import org.jkiss.dbeaver.model.data.DBDContentCached;
 import org.jkiss.dbeaver.model.data.DBDContentStorage;
 import org.jkiss.dbeaver.model.data.DBDContentStorageLocal;
+import org.jkiss.dbeaver.model.data.storage.BytesContentStorage;
+import org.jkiss.dbeaver.model.data.storage.ExternalContentStorage;
+import org.jkiss.dbeaver.model.data.storage.StringContentStorage;
+import org.jkiss.dbeaver.model.data.storage.TemporaryContentStorage;
 import org.jkiss.dbeaver.model.exec.DBCException;
 import org.jkiss.dbeaver.model.exec.DBCExecutionContext;
-import org.jkiss.dbeaver.model.impl.BytesContentStorage;
-import org.jkiss.dbeaver.model.impl.ExternalContentStorage;
-import org.jkiss.dbeaver.model.impl.StringContentStorage;
-import org.jkiss.dbeaver.model.impl.TemporaryContentStorage;
 import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
 import org.jkiss.dbeaver.model.runtime.DefaultProgressMonitor;
 import org.jkiss.dbeaver.runtime.DBWorkbench;
@@ -166,6 +166,15 @@ public class ContentEditorInput implements IPathEditorInput, IStatefulEditorInpu
         return valueController.getValue();
     }
 
+    public long getContentLength() {
+        if (stringStorage != null) {
+            return stringStorage.getLength();
+        } else if (contentFile != null) {
+            return contentFile.length();
+        } else {
+            return 0;
+        }
+    }
     private void prepareContent(DBRProgressMonitor monitor)
         throws DBException
     {

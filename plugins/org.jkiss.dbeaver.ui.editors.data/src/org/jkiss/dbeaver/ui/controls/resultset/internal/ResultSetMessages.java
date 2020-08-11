@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -59,9 +59,15 @@ public class ResultSetMessages extends NLS {
 
     public static String controls_resultset_viewer_action_edit;
     public static String controls_resultset_viewer_action_order_filter;
+    public static String controls_resultset_viewer_action_order;
+    public static String controls_resultset_viewer_action_filter;
     public static String controls_resultset_viewer_action_custom_filter;
+    public static String controls_resultset_viewer_action_column_view;
+    public static String controls_resultset_viewer_action_logical_structure;
     public static String controls_resultset_viewer_action_view_format;
     public static String controls_resultset_viewer_action_view_as;
+    public static String controls_resultset_viewer_action_view_column_type;
+    public static String controls_resultset_viewer_action_view_column_types;
     public static String controls_resultset_viewer_action_data_formats;
     public static String controls_resultset_viewer_action_refresh;
     public static String controls_resultset_viewer_action_panels;
@@ -79,6 +85,7 @@ public class ResultSetMessages extends NLS {
     public static String controls_resultset_viewer_status_row;
     public static String controls_resultset_viewer_status_rows;
     public static String controls_resultset_viewer_status_rows_fetched;
+    public static String controls_resultset_viewer_status_rows_updated;
     public static String controls_resultset_viewer_status_rows_size;
     public static String controls_resultset_viewer_value;
     public static String controls_resultset_viewer_calculate_row_count;
@@ -86,6 +93,7 @@ public class ResultSetMessages extends NLS {
     public static String controls_resultset_viewer_hide_columns_x;
     public static String controls_resultset_viewer_hide_columns_error_title;
     public static String controls_resultset_viewer_hide_columnss_error_text;
+    public static String controls_resultset_viewer_show_hidden_columns;
 
     public static String controls_resultset_ref_menu_no_references;
     public static String controls_resultset_ref_menu_references;
@@ -104,15 +112,13 @@ public class ResultSetMessages extends NLS {
     public static String sql_editor_resultset_filter_panel_text_enter_sql_to_filter;
     public static String sql_editor_resultset_filter_panel_text_enter_filter_not_support;
     public static String sql_editor_resultset_filter_panel_btn_apply;
-    public static String sql_editor_resultset_filter_panel_btn_remove;
-    public static String sql_editor_resultset_filter_panel_btn_save;
-    public static String sql_editor_resultset_filter_panel_btn_custom;
     public static String sql_editor_resultset_filter_panel_label;
     public static String sql_editor_resultset_filter_panel_btn_open_console;
     public static String sql_editor_resultset_filter_panel_control_no_data;
     public static String sql_editor_resultset_filter_panel_control_execute_to_see_reslut;
 
     public static String actions_name_color_by;
+    public static String actions_name_color_reset_by;
 	public static String actions_name_colorize_data_types;
 	public static String actions_name_row_colors;
 	public static String actions_name_structurize_complex_types;
@@ -175,6 +181,10 @@ public class ResultSetMessages extends NLS {
     public static String pref_page_data_format_group_settings;
     public static String pref_page_data_format_datetime_use_native_formatting;
     public static String pref_page_data_format_datetime_use_native_formatting_tip;
+    public static String pref_page_data_format_numeric_use_native_formatting;
+    public static String pref_page_data_format_numeric_use_native_formatting_tip;
+    public static String pref_page_data_format_numeric_use_scientific_notation;
+    public static String pref_page_data_format_numeric_use_scientific_notation_tip;
     public static String pref_page_data_format_group_format;
     public static String pref_page_data_format_label_profile;
     public static String pref_page_data_format_label_sample;
@@ -216,38 +226,6 @@ public class ResultSetMessages extends NLS {
     public static String pref_page_database_resultsets_label_read_metadata_tip;
     public static String pref_page_database_resultsets_label_read_references_tip;
     public static String pref_page_database_resultsets_label_fetch_size_tip;
-    // ResultSetPresentation
-    public static String pref_page_database_resultsets_group_common;
-    public static String pref_page_database_resultsets_label_switch_mode_on_rows;
-    public static String pref_page_database_resultsets_label_show_column_description;
-    public static String pref_page_database_resultsets_label_show_connection_name;
-    public static String pref_page_database_resultsets_label_calc_column_width_by_values;
-    public static String pref_page_database_resultsets_label_calc_column_width_by_values_tip;
-    public static String pref_page_database_resultsets_label_structurize_complex_types;
-    public static String pref_page_database_resultsets_label_structurize_complex_types_tip;
-    public static String pref_page_database_resultsets_group_grid;
-    public static String pref_page_database_resultsets_label_mark_odd_rows;
-    public static String pref_page_database_resultsets_label_colorize_data_types;
-    public static String pref_page_database_resultsets_label_right_justify_numbers_and_date;
-    public static String pref_page_database_resultsets_label_right_justify_datetime;
-    public static String pref_page_database_resultsets_label_row_batch_size;
-    public static String pref_page_database_resultsets_label_row_batch_size_tip;
-    public static String pref_page_database_resultsets_label_show_cell_icons;
-    public static String pref_page_database_resultsets_label_show_attr_icons;
-    public static String pref_page_database_resultsets_label_show_attr_icons_tip;
-    public static String pref_page_database_resultsets_label_show_attr_filters;
-    public static String pref_page_database_resultsets_label_show_attr_filters_tip;
-    public static String pref_page_database_resultsets_label_show_attr_ordering;
-    public static String pref_page_database_resultsets_label_show_attr_ordering_tip;
-    public static String pref_page_database_resultsets_label_double_click_behavior;
-    public static String pref_page_database_resultsets_group_plain_text;
-    public static String pref_page_database_resultsets_label_value_format;
-    public static String pref_page_database_resultsets_label_tab_width;
-    public static String pref_page_database_resultsets_label_maximum_column_length;
-    public static String pref_page_database_resultsets_label_text_show_nulls;
-    public static String pref_page_database_resultsets_label_text_delimiter_leading;
-    public static String pref_page_database_resultsets_label_text_delimiter_trailing;
-    public static String pref_page_database_resultsets_label_text_extra_spaces;
 
     public static String pref_page_content_cache_clob;
     public static String pref_page_content_cache_blob;
@@ -259,10 +237,6 @@ public class ResultSetMessages extends NLS {
     public static String pref_page_database_general_label_result_set_max_size;
     public static String pref_page_database_general_label_result_set_cancel_timeout;
     public static String pref_page_database_general_label_result_set_cancel_timeout_tip;
-
-    public static String pref_page_result_selector_editor;
-	public static String pref_page_result_selector_inline_editor;
-	public static String pref_page_result_selector_none;
 
 	public static String pref_page_results_group_advanced;
     public static String pref_page_sql_editor_group_misc;
@@ -282,6 +256,16 @@ public class ResultSetMessages extends NLS {
     public static String results_decorator_grouping_is_not_supported;
     public static String results_decorator_no_connected_to_db;
     public static String results_decorator_no_groupings;
+    
+    public static String virtual_edit_columns_page_add;
+    public static String virtual_edit_columns_page_table_column_name;
+    public static String virtual_edit_columns_page_table_column_data_type;
+    public static String virtual_edit_columns_page_table_column_expression;
+    public static String virtual_edit_columns_page_dialog_button_add;
+    public static String virtual_edit_columns_page_dialog_button_edit;
+    public static String virtual_edit_columns_page_dialog_button_remove;
+    public static String virtual_edit_columns_page_confirm_action_delete;
+    public static String virtual_edit_columns_page_confirm_action_question_delete_column;
 
     static {
         // initialize resource bundle

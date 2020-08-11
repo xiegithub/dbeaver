@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,6 +18,8 @@
 package org.jkiss.dbeaver.ui;
 
 import org.eclipse.core.commands.Command;
+import org.eclipse.core.commands.IParameter;
+import org.eclipse.core.commands.Parameterization;
 import org.eclipse.core.commands.ParameterizedCommand;
 import org.eclipse.core.commands.common.NotDefinedException;
 import org.eclipse.core.expressions.EvaluationContext;
@@ -32,7 +34,6 @@ import org.eclipse.jface.commands.ToggleState;
 import org.eclipse.jface.resource.ImageDescriptor;
 import org.eclipse.jface.viewers.ISelection;
 import org.eclipse.jface.viewers.IStructuredSelection;
-import org.eclipse.swt.graphics.Image;
 import org.eclipse.ui.*;
 import org.eclipse.ui.commands.ICommandImageService;
 import org.eclipse.ui.commands.ICommandService;
@@ -46,7 +47,10 @@ import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
 import org.jkiss.dbeaver.Log;
 import org.jkiss.dbeaver.model.DBPImage;
+import org.jkiss.dbeaver.runtime.DBWorkbench;
 import org.jkiss.utils.CommonUtils;
+
+import java.util.Map;
 
 /**
  * Action utils
@@ -114,17 +118,18 @@ public class ActionUtils
         @Nullable DBPImage image,
         @Nullable String toolTip,
         boolean showText) {
-        return makeCommandContribution(serviceLocator, commandId, CommandContributionItem.STYLE_PUSH, name, image, toolTip, showText);
+        return makeCommandContribution(serviceLocator, commandId, CommandContributionItem.STYLE_PUSH, name, image, toolTip, showText, null);
     }
 
     public static CommandContributionItem makeCommandContribution(
-            @NotNull IServiceLocator serviceLocator,
-            @NotNull String commandId,
-            int style,
-            @Nullable String name,
-            @Nullable DBPImage image,
-            @Nullable String toolTip,
-            boolean showText)
+        @NotNull IServiceLocator serviceLocator,
+        @NotNull String commandId,
+        int style,
+        @Nullable String name,
+        @Nullable DBPImage image,
+        @Nullable String toolTip,
+        boolean showText,
+        @Nullable Map<String, Object> parameters)
     {
         final CommandContributionItemParameter contributionParameters = new CommandContributionItemParameter(
             serviceLocator,
@@ -140,13 +145,14 @@ public class ActionUtils
             style,
             null,
             false);
+        contributionParameters.parameters = parameters;
         if (showText) {
             contributionParameters.mode = CommandContributionItem.MODE_FORCE_TEXT;
         }
         return new CommandContributionItem(contributionParameters);
     }
 
-    public static boolean isCommandEnabled(String commandId, IWorkbenchPartSite site)
+    public static boolean isCommandEnabled(String commandId, IServiceLocator site)
     {
         if (commandId != null && site != null) {
             try {
@@ -271,6 +277,11 @@ public class ActionUtils
 
     public static void runCommand(String commandId, ISelection selection, IServiceLocator serviceLocator)
     {
+        runCommand(commandId, selection, null, serviceLocator);
+    }
+
+    public static void runCommand(String commandId, ISelection selection, Map<String, Object> parameters, IServiceLocator serviceLocator)
+    {
         if (commandId != null) {
             try {
                 ICommandService commandService = serviceLocator.getService(ICommandService.class);
@@ -292,6 +303,24 @@ public class ActionUtils
                             }
                         }
                     }
+
+                    Parameterization[] parametrization = null;
+
+                    if (!CommonUtils.isEmpty(parameters)) {
+                        parametrization = new Parameterization[parameters.size()];
+                        int paramIndex = 0;
+                        for (Map.Entry<String, Object> param : parameters.entrySet()) {
+                            IParameter parameter = command.getParameter(param.getKey());
+                            if (parameter != null) {
+                                parametrization[paramIndex] = new Parameterization(parameter, CommonUtils.toString(param.getValue()));
+                            } else {
+                                log.debug("Parameter '" + param.getKey() + "' not found in command '" + commandId + "'");
+                                parametrization[paramIndex] = null;
+                            }
+                            paramIndex++;
+                        }
+                    }
+
                     if (selection != null && needContextPatch) {
                         // Create new eval context
                         IEvaluationContext context = new EvaluationContext(
@@ -301,11 +330,12 @@ public class ActionUtils
                         }
                         context.addVariable(ISources.ACTIVE_CURRENT_SELECTION_NAME, selection);
 
-                        ParameterizedCommand pc = new ParameterizedCommand(command, null);
+                        ParameterizedCommand pc = new ParameterizedCommand(command, parametrization);
                         handlerService.executeCommandInContext(pc, null, context);
                     } else if (command != null) {
                         if (command.isEnabled()) {
-                            handlerService.executeCommand(commandId, null);
+                            ParameterizedCommand pc = new ParameterizedCommand(command, parametrization);
+                            handlerService.executeCommand(pc, null);
                         } else {
                             log.warn("Command '" + commandId + "' is disabled");
                         }
@@ -314,7 +344,7 @@ public class ActionUtils
                     }
                 }
             } catch (Exception e) {
-                log.error("Can't execute command '" + commandId + "'", e);
+                DBWorkbench.getPlatformUI().showError("Error running command", "Can't execute command '" + commandId + "'", e);
             }
         }
     }

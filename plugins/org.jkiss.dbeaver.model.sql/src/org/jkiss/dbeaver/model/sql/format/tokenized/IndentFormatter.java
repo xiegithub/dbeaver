@@ -2,6 +2,7 @@ package org.jkiss.dbeaver.model.sql.format.tokenized;
 
 import org.jkiss.dbeaver.Log;
 import org.jkiss.dbeaver.ModelPreferences;
+import org.jkiss.dbeaver.model.sql.SQLDialect;
 import org.jkiss.dbeaver.model.sql.SQLUtils;
 import org.jkiss.dbeaver.model.sql.format.SQLFormatterConfiguration;
 import org.jkiss.dbeaver.utils.GeneralUtils;
@@ -19,12 +20,15 @@ class IndentFormatter {
 
     private final SQLFormatterConfiguration formatterCfg;
     private final boolean isCompact;
+    private final SQLDialect dialect;
     private List<String> statementDelimiters = new LinkedList<>();
     private String delimiterRedefiner;
     private int indent = 0;
     private int bracketsDepth = 0;
     private boolean encounterBetween = false;
     private List<Boolean> functionBracket = new ArrayList<>();
+    private final String[] blockHeaderStrings;
+
     private static final String[] JOIN_BEGIN = {"LEFT", "RIGHT", "INNER", "OUTER", "FULL", "CROSS", "JOIN"};
 
     IndentFormatter(SQLFormatterConfiguration formatterCfg, boolean isCompact) {
@@ -37,6 +41,8 @@ class IndentFormatter {
             statementDelimiters.add(delim.toUpperCase(Locale.ENGLISH));
         }
         this.isCompact = isCompact;
+        dialect = formatterCfg.getSyntaxManager().getDialect();
+        blockHeaderStrings = dialect.getBlockHeaderStrings();
     }
 
     private int formatSymbol(String tokenString, List<Integer> bracketIndent, List<FormatterToken> argList, Integer index, FormatterToken prev) {
@@ -66,12 +72,13 @@ class IndentFormatter {
             case ",":
                 if (!isCompact) {
                     /*if (bracketsDepth <= 0 || "SELECT".equals(getPrevDMLKeyword(argList, index)))*/
+                    if(bracketsDepth <= 0 || functionBracket.size() == 0)
                     {
                         boolean lfBeforeComma = formatterCfg.getPreferenceStore().getBoolean(ModelPreferences.SQL_FORMAT_LF_BEFORE_COMMA);
                         result += insertReturnAndIndent(
-                                argList,
-                                lfBeforeComma ? index : index + 1,
-                                indent);
+                            argList,
+                            lfBeforeComma ? index : index + 1,
+                            indent);
                     }
                 }
                 break;
@@ -93,12 +100,21 @@ class IndentFormatter {
             }
             result += insertReturnAndIndent(argList, index + 1, indent);
         } else {
-            switch (tokenString) {
+            if (blockHeaderStrings != null && ArrayUtils.contains(blockHeaderStrings, tokenString) || SQLUtils.isBlockStartKeyword(dialect, tokenString)) {
+                if (index > 0) {
+                    result += insertReturnAndIndent(argList, index, indent - 1);
+                }
+                indent++;
+                result += insertReturnAndIndent(argList, index + 1, indent);
+            } else if (SQLUtils.isBlockEndKeyword(dialect, tokenString)) {
+                indent--;
+                result += insertReturnAndIndent(argList, index, indent);
+            } else switch (tokenString) {
                 case "CREATE":
                     if (!isCompact) {
-                        int nextIndex = getNextKeyword(argList, index);
+                        int nextIndex = getNextKeywordIndex(argList, index);
                         if (nextIndex > 0 && "OR".equals(argList.get(nextIndex).getString().toUpperCase(Locale.ENGLISH))) {
-                            nextIndex = getNextKeyword(argList, nextIndex);
+                            nextIndex = getNextKeywordIndex(argList, nextIndex);
                             if (nextIndex > 0 && "REPLACE".equals(argList.get(nextIndex).getString().toUpperCase(Locale.ENGLISH))) {
                                 insertReturnAndIndent(argList, nextIndex + 1, indent);
                                 break;
@@ -116,21 +132,34 @@ class IndentFormatter {
                 case "TRUNCATE": //$NON-NLS-1$
                 case "TABLE": //$NON-NLS-1$
                     if (!isCompact) {
-                        if (bracketsDepth > 0) {
-                            result += insertReturnAndIndent(argList, index, indent);
+                        if (!"TABLE".equals(tokenString)) {
+                            if (bracketsDepth > 0) {
+                                result += insertReturnAndIndent(argList, index, indent);
+                            } else if (index > 0) {
+                                // just add lf before keyword
+                                indent = 0;
+                                result += insertReturnAndIndent(argList, index - 1, indent);
+                            }
+                            indent++;
+                            result += insertReturnAndIndent(argList, result + 1, indent);
                         }
-                        indent++;
-                        result += insertReturnAndIndent(argList, index + 1, indent);
                     }
                     break;
                 case "CASE":  //$NON-NLS-1$
                     if (!isCompact) {
                         result += insertReturnAndIndent(argList, index - 1, indent);
-                        indent++;
-                        result += insertReturnAndIndent(argList, index + 1, indent);
+                        if ("WHEN".equalsIgnoreCase(getNextKeyword(argList, index))) {
+                            indent++;
+                            result += insertReturnAndIndent(argList, index + 1, indent);
+                        }
                     }
                     break;
-                case "BEGIN":
+                case "END": // CASE ... END
+                    if (!isCompact) {
+	                    indent--;
+	                    result += insertReturnAndIndent(argList, index, indent);
+                    }
+                	break;
                 case "FROM":
                 case "WHERE":
                 case "START WITH":
@@ -158,7 +187,6 @@ class IndentFormatter {
                     }
                     break;
                 case "VALUES":  //$NON-NLS-1$
-                case "END":  //$NON-NLS-1$
                 case "LIMIT":  //$NON-NLS-1$
                     indent--;
                     result += insertReturnAndIndent(argList, index, indent);
@@ -168,6 +196,9 @@ class IndentFormatter {
                         break;
                     }
                 case "WHEN":
+                    if ("CASE".equalsIgnoreCase(getPrevKeyword(argList, index))) {
+                        break;
+                    }
                 case "ELSE":  //$NON-NLS-1$
                     result += insertReturnAndIndent(argList, index, indent);
                     break;
@@ -303,7 +334,7 @@ class IndentFormatter {
             if (argIndex > 0) {
                 final FormatterToken prevToken = argList.get(argIndex - 1);
                 if (prevToken.getType() == TokenType.COMMENT &&
-                        SQLUtils.isCommentLine(formatterCfg.getSyntaxManager().getDialect(), prevToken.getString())) {
+                    SQLUtils.isCommentLine(formatterCfg.getSyntaxManager().getDialect(), prevToken.getString())) {
                     s = ""; //$NON-NLS-1$
                 }
             }
@@ -313,7 +344,10 @@ class IndentFormatter {
 
             FormatterToken token = argList.get(argIndex);
             if (token.getType() == TokenType.SPACE) {
-                token.setString(s);
+                if (!token.getString().contains(s)) {
+                    // Replace space token only if it has less chars
+                    token.setString(s);
+                }
                 return 0;
             }
             boolean isDelimiter = statementDelimiters.contains(token.getString().toUpperCase());
@@ -393,7 +427,7 @@ class IndentFormatter {
         return null;
     }
 
-    private static int getNextKeyword(List<FormatterToken> argList, int index) {
+    private static int getNextKeywordIndex(List<FormatterToken> argList, int index) {
         for (int i = index + 1; i < argList.size(); i++) {
             if (argList.get(i).getType() == TokenType.KEYWORD) {
                 return i;
@@ -401,4 +435,13 @@ class IndentFormatter {
         }
         return -1;
     }
+
+    private static String getNextKeyword(List<FormatterToken> argList, int index) {
+        int ki = getNextKeywordIndex(argList, index);
+        if (ki < 0) {
+            return null;
+        }
+        return argList.get(ki).getString();
+    }
+
 }

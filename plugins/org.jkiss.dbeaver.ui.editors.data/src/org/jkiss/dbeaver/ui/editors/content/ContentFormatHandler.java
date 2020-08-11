@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,9 +22,9 @@ import org.eclipse.core.commands.ExecutionException;
 import org.eclipse.jface.text.ITextViewer;
 import org.eclipse.jface.text.TextViewer;
 import org.eclipse.jface.text.source.SourceViewer;
+import org.eclipse.swt.custom.StyledText;
 import org.eclipse.ui.IEditorPart;
 import org.eclipse.ui.handlers.HandlerUtil;
-import org.eclipse.ui.texteditor.AbstractTextEditor;
 
 public class ContentFormatHandler extends AbstractHandler {
 
@@ -38,9 +38,17 @@ public class ContentFormatHandler extends AbstractHandler {
             IEditorPart editorPart = ((ContentEditor) activeEditor).getActiveEditor();
             ITextViewer textViewer = editorPart.getAdapter(ITextViewer.class);
             if (textViewer instanceof TextViewer) {
-                if (((TextViewer) textViewer).canDoOperation(SourceViewer.FORMAT)) {
-                    ((TextViewer) textViewer).doOperation(SourceViewer.FORMAT);
+                StyledText textWidget = textViewer.getTextWidget();
+                boolean oldEditable = textWidget.getEditable();
+                textWidget.setEditable(true);
+                try {
+                    if (((TextViewer) textViewer).canDoOperation(SourceViewer.FORMAT)) {
+                        ((TextViewer) textViewer).doOperation(SourceViewer.FORMAT);
+                    }
+                } finally {
+                    textWidget.setEditable(oldEditable);
                 }
+
             }
         }
         return null;

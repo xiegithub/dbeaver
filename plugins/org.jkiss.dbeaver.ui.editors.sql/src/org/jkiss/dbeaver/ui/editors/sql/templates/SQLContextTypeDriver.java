@@ -13,7 +13,6 @@ package org.jkiss.dbeaver.ui.editors.sql.templates;
 
 
 import org.jkiss.dbeaver.model.connection.DBPDriver;
-import org.jkiss.utils.CommonUtils;
 
 public class SQLContextTypeDriver extends SQLContextTypeAbstract {
 
@@ -21,7 +20,7 @@ public class SQLContextTypeDriver extends SQLContextTypeAbstract {
     {
         super(
             getTypeId(driver),
-            CommonUtils.isEmpty(driver.getCategory()) ? driver.getName() : driver.getCategory());
+            driver.getName());
     }
 
     public static String getTypeId(DBPDriver driver)

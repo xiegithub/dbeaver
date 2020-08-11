@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,10 +20,7 @@ import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
 import org.jkiss.dbeaver.DBException;
 import org.jkiss.dbeaver.Log;
-import org.jkiss.dbeaver.model.DBPEvaluationContext;
-import org.jkiss.dbeaver.model.DBPHiddenObject;
-import org.jkiss.dbeaver.model.DBPNamedObject2;
-import org.jkiss.dbeaver.model.DBUtils;
+import org.jkiss.dbeaver.model.*;
 import org.jkiss.dbeaver.model.impl.jdbc.JDBCUtils;
 import org.jkiss.dbeaver.model.impl.jdbc.struct.JDBCTableColumn;
 import org.jkiss.dbeaver.model.meta.IPropertyCacheValidator;
@@ -31,9 +28,12 @@ import org.jkiss.dbeaver.model.meta.IPropertyValueListProvider;
 import org.jkiss.dbeaver.model.meta.LazyProperty;
 import org.jkiss.dbeaver.model.meta.Property;
 import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
+import org.jkiss.dbeaver.model.runtime.VoidProgressMonitor;
 import org.jkiss.dbeaver.model.struct.DBSDataType;
 import org.jkiss.dbeaver.model.struct.DBSTypedObjectEx;
+import org.jkiss.dbeaver.model.struct.DBSTypedObjectExt3;
 import org.jkiss.dbeaver.model.struct.rdb.DBSTableColumn;
+import org.jkiss.utils.CommonUtils;
 
 import java.sql.ResultSet;
 import java.sql.Types;
@@ -44,7 +44,7 @@ import java.util.List;
 /**
  * OracleTableColumn
  */
-public class OracleTableColumn extends JDBCTableColumn<OracleTableBase> implements DBSTableColumn, DBSTypedObjectEx, DBPHiddenObject, DBPNamedObject2
+public class OracleTableColumn extends JDBCTableColumn<OracleTableBase> implements DBSTableColumn, DBSTypedObjectEx, DBSTypedObjectExt3, DBPHiddenObject, DBPNamedObject2
 {
     private static final Log log = Log.getLog(OracleTableColumn.class);
 
@@ -87,7 +87,12 @@ public class OracleTableColumn extends JDBCTableColumn<OracleTableBase> implemen
         String charUsed = JDBCUtils.safeGetString(dbResult, "CHAR_USED");
         setMaxLength(JDBCUtils.safeGetLong(dbResult, "C".equals(charUsed) ? "CHAR_LENGTH" : "DATA_LENGTH"));
         setRequired(!"Y".equals(JDBCUtils.safeGetString(dbResult, "NULLABLE")));
-        setScale(JDBCUtils.safeGetInteger(dbResult, "DATA_SCALE"));
+        this.scale = JDBCUtils.safeGetInteger(dbResult, "DATA_SCALE");
+        if (this.scale == null) {
+            if (this.type != null && this.type.getScale() != null) {
+                this.scale = this.type.getScale();
+            }
+        }
         setPrecision(JDBCUtils.safeGetInteger(dbResult, "DATA_PRECISION"));
         this.hidden = JDBCUtils.safeGetBoolean(dbResult, "HIDDEN_COLUMN", OracleConstants.YES);
     }
@@ -99,9 +104,47 @@ public class OracleTableColumn extends JDBCTableColumn<OracleTableBase> implemen
         return getTable().getDataSource();
     }
 
+    @Property(viewable = true, editable = true, updatable = true, order = 20, listProvider = ColumnTypeNameListProvider.class)
+    @Override
+    public String getFullTypeName() {
+        return DBUtils.getFullTypeName(this);
+    }
+
+    @Override
+    public void setFullTypeName(String typeName) throws DBException {
+        String plainTypeName;
+        int divPos = typeName.indexOf("(");
+        if (divPos == -1) {
+            plainTypeName = typeName;
+        } else {
+            plainTypeName = typeName.substring(0, divPos);
+            int divPos2 = typeName.indexOf(')', divPos);
+            if (divPos2 != -1) {
+                String modifiers = typeName.substring(divPos + 1, divPos2);
+                int divPos3 = modifiers.indexOf(',');
+                if (divPos3 == -1) {
+                    if (getDataKind() == DBPDataKind.STRING) {
+                        maxLength = CommonUtils.toInt(modifiers);
+                    } else {
+                        precision = CommonUtils.toInt(modifiers);
+                    }
+                } else {
+                    precision= CommonUtils.toInt(modifiers.substring(0, divPos3).trim());
+                    scale = CommonUtils.toInt(modifiers.substring(divPos3 + 1).trim());
+                }
+            }
+        }
+        OracleDataType newDataType = getDataSource().resolveDataType(new VoidProgressMonitor(), plainTypeName);
+        if (newDataType == null) {
+            throw new DBException("Bad data type: " + plainTypeName);
+        }
+        this.type = newDataType;
+        this.typeName = this.type.getTypeName();
+    }
+
     @Nullable
     @Override
-    @Property(viewable = true, editable = true, updatable = true, order = 20, listProvider = ColumnDataTypeListProvider.class)
+    //@Property(viewable = false, editableExpr = "!object.table.view", updatableExpr = "!object.table.view", order = 21, listProvider = ColumnDataTypeListProvider.class)
     public OracleDataType getDataType()
     {
         return type;
@@ -126,7 +169,7 @@ public class OracleTableColumn extends JDBCTableColumn<OracleTableBase> implemen
         return super.getTypeName();
     }
 
-    @Property(viewable = true, editable = true, updatable = true, order = 40)
+    @Property(viewable = false, editableExpr = "!object.table.view", updatableExpr = "!object.table.view", order = 40)
     @Override
     public long getMaxLength()
     {
@@ -134,27 +177,27 @@ public class OracleTableColumn extends JDBCTableColumn<OracleTableBase> implemen
     }
 
     @Override
-    @Property(viewable = true, editable = true, updatable = true, order = 41)
+    @Property(viewable = false, editableExpr = "!object.table.view", updatableExpr = "!object.table.view", order = 41)
     public Integer getPrecision()
     {
         return super.getPrecision();
     }
 
     @Override
-    @Property(viewable = true, editable = true, updatable = true, order = 42)
+    @Property(viewable = false, editableExpr = "!object.table.view", updatableExpr = "!object.table.view", order = 42)
     public Integer getScale()
     {
         return super.getScale();
     }
 
-    @Property(viewable = true, editable = true, updatable = true, order = 50)
+    @Property(viewable = true, editableExpr = "!object.table.view", updatableExpr = "!object.table.view", order = 50)
     @Override
     public boolean isRequired()
     {
         return super.isRequired();
     }
 
-    @Property(viewable = true, editable = true, updatable = true, order = 70)
+    @Property(viewable = true, editableExpr = "!object.table.view", updatableExpr = "!object.table.view", order = 70)
     @Override
     public String getDefaultValue()
     {

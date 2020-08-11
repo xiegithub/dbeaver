@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -32,10 +32,12 @@ import org.eclipse.ui.IWorkbenchPartSite;
 import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
 import org.jkiss.dbeaver.model.data.DBDAttributeBinding;
+import org.jkiss.dbeaver.model.data.DBDDisplayFormat;
 import org.jkiss.dbeaver.ui.UIUtils;
 import org.jkiss.dbeaver.ui.controls.lightgrid.*;
-import org.jkiss.dbeaver.ui.controls.resultset.AbstractPresentation;
-import org.jkiss.dbeaver.ui.controls.resultset.ResultSetPreferences;
+import org.jkiss.dbeaver.ui.controls.resultset.*;
+import org.jkiss.dbeaver.utils.GeneralUtils;
+import org.jkiss.utils.CommonUtils;
 
 /**
  * ResultSetControl
@@ -46,7 +48,9 @@ public class Spreadsheet extends LightGrid implements Listener {
     public enum DoubleClickBehavior {
         NONE,
         EDITOR,
-        INLINE_EDITOR
+        INLINE_EDITOR,
+        COPY_VALUE,
+        COPY_PASTE_VALUE
     }
 
     public static final int MAX_DEF_COLUMN_WIDTH = 300;
@@ -192,12 +196,12 @@ public class Spreadsheet extends LightGrid implements Listener {
 
         GridCell newCell = posToCell(newPos);
         if (newCell != null) {
-            setCursor(newCell, keepSelection);
+            setCursor(newCell, keepSelection, true);
         }
         return true;
     }
 
-    public void setCursor(@NotNull GridCell cell, boolean keepSelection)
+    void setCursor(@NotNull GridCell cell, boolean keepSelection, boolean showColumn)
     {
         Event selectionEvent = new Event();
         // Move row
@@ -211,7 +215,9 @@ public class Spreadsheet extends LightGrid implements Listener {
         // Move column
         if (pos.col >= 0) {
             super.setFocusColumn(pos.col);
-            super.showColumn(pos.col);
+            if (showColumn) {
+                super.showColumn(pos.col);
+            }
         }
 
         if (!keepSelection) {
@@ -249,7 +255,7 @@ public class Spreadsheet extends LightGrid implements Listener {
                     }
                     final SpreadsheetPresentation presentation = getPresentation();
                     final DBDAttributeBinding attribute = presentation.getCurrentAttribute();
-                    if (editorControl != null && attribute != null && !presentation.getController().isAttributeReadOnly(attribute) && event.keyCode != SWT.CR) {
+                    if (editorControl != null && attribute != null && presentation.getController().getAttributeReadOnlyStatus(attribute) == null && event.keyCode != SWT.CR) {
                         if (!editorControl.isDisposed()) {
                             // We used to forward key even to control but it worked poorly.
                             // So let's just insert first letter (it will remove old value which must be selected for inline controls)
@@ -280,8 +286,9 @@ public class Spreadsheet extends LightGrid implements Listener {
                 GridPos pos = super.getCell(new Point(event.x, event.y));
                 GridPos focusPos = super.getFocusPos();
                 if (pos != null && focusPos != null && pos.equals(super.getFocusPos())) {
-                    DoubleClickBehavior doubleClickBehavior = DoubleClickBehavior.valueOf(
-                        presentation.getPreferenceStore().getString(ResultSetPreferences.RESULT_SET_DOUBLE_CLICK));
+                    DoubleClickBehavior doubleClickBehavior = CommonUtils.valueOf(DoubleClickBehavior.class,
+                        presentation.getPreferenceStore().getString(ResultSetPreferences.RESULT_SET_DOUBLE_CLICK),
+                        DoubleClickBehavior.NONE);
 
                     switch (doubleClickBehavior) {
                         case NONE:
@@ -292,6 +299,32 @@ public class Spreadsheet extends LightGrid implements Listener {
                         case INLINE_EDITOR:
                             presentation.openValueEditor(true);
                             break;
+                        case COPY_VALUE: {
+                            ResultSetCopySettings copySettings = new ResultSetCopySettings();
+                            copySettings.setFormat(DBDDisplayFormat.EDIT);
+                            String stringValue = presentation.copySelectionToString(copySettings);
+                            ResultSetUtils.copyToClipboard(stringValue);
+                            break;
+                        }
+
+                        case COPY_PASTE_VALUE: {
+                                IResultSetValueReflector valueReflector = GeneralUtils.adapt(
+                                    presentation.getController().getContainer(),
+                                    IResultSetValueReflector.class);
+                                if (valueReflector != null) {
+                                    DBDAttributeBinding currentAttribute = presentation.getCurrentAttribute();
+                                    ResultSetRow currentRow = presentation.getController().getCurrentRow();
+                                    if (currentAttribute != null && currentRow != null) {
+                                        Object cellValue = presentation.getController().getModel().getCellValue(currentAttribute, currentRow);
+                                        ResultSetCopySettings copySettings = new ResultSetCopySettings();
+                                        valueReflector.insertCurrentCellValue(currentAttribute, cellValue, presentation.copySelectionToString(copySettings));
+                                    }
+                                } else {
+                                    // No value reflector - open inline editor then
+                                    presentation.openValueEditor(true);
+                                }
+                            break;
+                        }
                     }
                 }
                 break;
@@ -306,9 +339,7 @@ public class Spreadsheet extends LightGrid implements Listener {
             case LightGrid.Event_FilterColumn:
             	//showFiltersMenu
             	presentation.showFiltering(event.data);
-            	
-            	
-            	break;                
+            	break;
             case LightGrid.Event_NavigateLink:
                 // Perform navigation async because it may change grid content and
                 // we don't want to mess current grid state
@@ -324,6 +355,12 @@ public class Spreadsheet extends LightGrid implements Listener {
         super.redraw();
     }
 
+    @Override
+    protected void toggleCellValue(Object column, Object row) {
+        presentation.toggleCellValue(column, row);
+
+    }
+
     private void hookContextMenu()
     {
         MenuManager menuMgr = new MenuManager(null, AbstractPresentation.RESULT_SET_PRESENTATION_CONTEXT_MENU);
@@ -332,8 +369,9 @@ public class Spreadsheet extends LightGrid implements Listener {
             // Let controller to provide it's own menu items
             GridPos focusPos = getFocusPos();
             presentation.fillContextMenu(
-                manager, focusPos.col >= 0 && focusPos.col < columnElements.length ? columnElements[focusPos.col] : null,
-                focusPos.row >= 0 && focusPos.row < rowElements.length ? rowElements[focusPos.row] : null
+                manager,
+                isHoveringOnRowHeader() ? null : focusPos.col >= 0 && focusPos.col < columnElements.length ? columnElements[focusPos.col] : null,
+                isHoveringOnHeader() ? null : (focusPos.row >= 0 && focusPos.row < rowElements.length ? rowElements[focusPos.row] : null)
             );
         });
         menuMgr.setRemoveAllWhenShown(true);

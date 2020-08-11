@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,7 +25,6 @@ import org.jkiss.dbeaver.model.DBPRefreshableObject;
 import org.jkiss.dbeaver.model.DBPSaveableObject;
 import org.jkiss.dbeaver.model.DBPSystemObject;
 import org.jkiss.dbeaver.model.DBUtils;
-import org.jkiss.dbeaver.model.exec.DBCSession;
 import org.jkiss.dbeaver.model.exec.jdbc.JDBCPreparedStatement;
 import org.jkiss.dbeaver.model.exec.jdbc.JDBCResultSet;
 import org.jkiss.dbeaver.model.exec.jdbc.JDBCSession;
@@ -36,11 +35,10 @@ import org.jkiss.dbeaver.model.impl.jdbc.cache.JDBCObjectLookupCache;
 import org.jkiss.dbeaver.model.meta.Association;
 import org.jkiss.dbeaver.model.meta.Property;
 import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
-import org.jkiss.dbeaver.model.runtime.VoidProgressMonitor;
 import org.jkiss.dbeaver.model.struct.DBSObject;
 import org.jkiss.dbeaver.model.struct.DBSObjectFilter;
-import org.jkiss.dbeaver.model.struct.DBSObjectSelector;
 import org.jkiss.dbeaver.model.struct.rdb.DBSCatalog;
+import org.jkiss.utils.CommonUtils;
 import org.jkiss.utils.LongKeyMap;
 
 import java.sql.SQLException;
@@ -50,7 +48,7 @@ import java.util.List;
 /**
 * SQL Server database
 */
-public class SQLServerDatabase implements DBSCatalog, DBPSaveableObject, DBPRefreshableObject, DBPSystemObject, DBSObjectSelector {
+public class SQLServerDatabase implements DBSCatalog, DBPSaveableObject, DBPRefreshableObject, DBPSystemObject {
 
     private static final Log log = Log.getLog(SQLServerDatabase.class);
 
@@ -62,19 +60,32 @@ public class SQLServerDatabase implements DBSCatalog, DBPSaveableObject, DBPRefr
     private SchemaCache schemaCache = new SchemaCache();
     private TriggerCache triggerCache = new TriggerCache();
 
-    SQLServerDatabase(SQLServerDataSource dataSource, JDBCResultSet resultSet) {
+    SQLServerDatabase(JDBCSession session, SQLServerDataSource dataSource, JDBCResultSet resultSet) {
         this.dataSource = dataSource;
         this.name = JDBCUtils.safeGetString(resultSet, "name");
         //this.description = JDBCUtils.safeGetString(resultSet, "description");
 
         this.persisted = true;
+
+        if (CommonUtils.equalObjects(
+            ((SQLServerExecutionContext) session.getExecutionContext()).getActiveDatabaseName(),
+            this.name))
+        {
+            try {
+                getSchemas(session.getProgressMonitor());
+            } catch (DBException e) {
+                log.debug("Error reading default database schemas", e);
+            }
+        }
     }
 
+    @NotNull
     @Override
     public SQLServerDataSource getDataSource() {
         return dataSource;
     }
 
+    @NotNull
     @Override
     @Property(viewable = true, editable = true, order = 1)
     public String getName() {
@@ -112,7 +123,7 @@ public class SQLServerDatabase implements DBSCatalog, DBPSaveableObject, DBPRefr
     }
 
     @Override
-    public DBSObject refreshObject(DBRProgressMonitor monitor) {
+    public DBSObject refreshObject(@NotNull DBRProgressMonitor monitor) {
         typesCache.clearCache();
         schemaCache.clearCache();
         triggerCache.clearCache();
@@ -131,7 +142,7 @@ public class SQLServerDatabase implements DBSCatalog, DBPSaveableObject, DBPRefr
         return typesCache.getObject(monitor, this, typeName);
     }
 
-    public SQLServerDataType getDataTypeByUserTypeId(DBRProgressMonitor monitor, int typeID) throws DBException {
+    SQLServerDataType getDataTypeByUserTypeId(DBRProgressMonitor monitor, int typeID) throws DBException {
         typesCache.getAllObjects(monitor, this);
 
         SQLServerDataType dataType = typesCache.getDataType(typeID);
@@ -146,29 +157,6 @@ public class SQLServerDatabase implements DBSCatalog, DBPSaveableObject, DBPRefr
         return null;
     }
 
-    ///////////////////////////////////////////////////////
-    // Schema selector
-
-    @Override
-    public boolean supportsDefaultChange() {
-        return false;
-    }
-
-    @Override
-    public DBSObject getDefaultObject() {
-        return schemaCache.getCachedObject(SQLServerConstants.DEFAULT_SCHEMA_NAME);
-    }
-
-    @Override
-    public void setDefaultObject(DBRProgressMonitor monitor, DBSObject object) throws DBException {
-        throw new DBException("SQL Server doesn't support default schema change");
-    }
-
-    @Override
-    public boolean refreshDefaultObject(DBCSession session) throws DBException {
-        return false;
-    }
-
     @Override
     public String toString() {
         return getName();
@@ -181,18 +169,19 @@ public class SQLServerDatabase implements DBSCatalog, DBPSaveableObject, DBPRefr
 
         private LongKeyMap<SQLServerDataType> dataTypeMap = new LongKeyMap<>();
         
+        @NotNull
         @Override
-        protected JDBCStatement prepareObjectsStatement(JDBCSession session, SQLServerDatabase database) throws SQLException {
+        protected JDBCStatement prepareObjectsStatement(@NotNull JDBCSession session, @NotNull SQLServerDatabase database) throws SQLException {
             return session.prepareStatement(
                 "SELECT * FROM " + SQLServerUtils.getSystemTableName(database, "types") + " WHERE is_user_defined = 1 order by name");
         }
 
         @Override
-        protected SQLServerDataType fetchObject(JDBCSession session, SQLServerDatabase database, JDBCResultSet resultSet) {
+        protected SQLServerDataType fetchObject(@NotNull JDBCSession session, @NotNull SQLServerDatabase database, @NotNull JDBCResultSet resultSet) {
             return new SQLServerDataType(database, resultSet);
         }
 
-        public SQLServerDataType getDataType(long typeID) {
+        SQLServerDataType getDataType(long typeID) {
             return dataTypeMap.get(typeID);
         }
 
@@ -248,23 +237,27 @@ public class SQLServerDatabase implements DBSCatalog, DBPSaveableObject, DBPRefr
         return schemaCache.getObject(monitor, this, name);
     }
 
+    public SQLServerSchema getSchema(String name) {
+        return schemaCache.getCachedObject(name);
+    }
+
     @Override
-    public Collection<SQLServerSchema> getChildren(DBRProgressMonitor monitor) throws DBException {
+    public Collection<SQLServerSchema> getChildren(@NotNull DBRProgressMonitor monitor) throws DBException {
         return schemaCache.getAllObjects(monitor, this);
     }
 
     @Override
-    public DBSObject getChild(DBRProgressMonitor monitor, String childName) throws DBException {
+    public DBSObject getChild(@NotNull DBRProgressMonitor monitor, @NotNull String childName) throws DBException {
         return schemaCache.getObject(monitor, this, childName);
     }
 
     @Override
-    public Class<? extends DBSObject> getChildType(DBRProgressMonitor monitor) {
+    public Class<? extends DBSObject> getChildType(@NotNull DBRProgressMonitor monitor) {
         return SQLServerSchema.class;
     }
 
     @Override
-    public void cacheStructure(DBRProgressMonitor monitor, int scope) throws DBException {
+    public void cacheStructure(@NotNull DBRProgressMonitor monitor, int scope) throws DBException {
         schemaCache.getAllObjects(monitor, this);
     }
 
@@ -273,6 +266,7 @@ public class SQLServerDatabase implements DBSCatalog, DBPSaveableObject, DBPRefr
             setListOrderComparator(DBUtils.nameComparatorIgnoreCase());
         }
 
+        @NotNull
         @Override
         protected JDBCStatement prepareObjectsStatement(@NotNull JDBCSession session, @NotNull SQLServerDatabase owner) throws SQLException {
             SQLServerDataSource dataSource = owner.getDataSource();
@@ -324,14 +318,15 @@ public class SQLServerDatabase implements DBSCatalog, DBPSaveableObject, DBPRefr
         return triggerCache.getAllObjects(monitor, this);
     }
 
-    public TriggerCache getTriggerCache() {
+    TriggerCache getTriggerCache() {
         return triggerCache;
     }
 
     class TriggerCache extends JDBCObjectLookupCache<SQLServerDatabase, SQLServerDatabaseTrigger> {
 
+        @NotNull
         @Override
-        public JDBCStatement prepareLookupStatement(JDBCSession session, SQLServerDatabase database, SQLServerDatabaseTrigger object, String objectName) throws SQLException {
+        public JDBCStatement prepareLookupStatement(@NotNull JDBCSession session, @NotNull SQLServerDatabase database, SQLServerDatabaseTrigger object, String objectName) throws SQLException {
             StringBuilder sql = new StringBuilder(500);
             sql.append(
                 "SELECT t.* FROM \n")
@@ -350,7 +345,7 @@ public class SQLServerDatabase implements DBSCatalog, DBPSaveableObject, DBPRefr
         }
 
         @Override
-        protected SQLServerDatabaseTrigger fetchObject(JDBCSession session, SQLServerDatabase database, JDBCResultSet resultSet) {
+        protected SQLServerDatabaseTrigger fetchObject(@NotNull JDBCSession session, @NotNull SQLServerDatabase database, @NotNull JDBCResultSet resultSet) {
             return new SQLServerDatabaseTrigger(database, resultSet);
         }
 

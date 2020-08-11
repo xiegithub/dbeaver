@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  * Copyright (C) 2012 Eugene Fradkin (eugene.fradkin@gmail.com)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -29,9 +29,7 @@ import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
 import org.jkiss.dbeaver.tools.transfer.stream.IStreamDataExporterSite;
 import org.jkiss.utils.CommonUtils;
 
-import java.io.PrintWriter;
 import java.util.Date;
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -42,24 +40,26 @@ public class DataExporterTXT extends StreamExporterAbstract {
     private static final String PROP_MAX_COLUMN_LENGTH = "maxColumnLength";
     private static final String PROP_SHOW_NULLS = "showNulls";
     private static final String PROP_DELIM_LEADING = "delimLeading";
+    private static final String PROP_DELIM_HEADER = "delimHeader";
     private static final String PROP_DELIM_TRAILING = "delimTrailing";
 
-    private List<DBDAttributeBinding> columns;
+    private DBDAttributeBinding[] columns;
     private String tableName;
     private int maxColumnSize = 100;
     private int minColumnSize = 3;
     private boolean showNulls;
-    private boolean delimLeading, delimTrailing;
+    private boolean delimLeading, delimHeader, delimTrailing;
 
     private int[] colWidths;
 
     @Override
     public void init(IStreamDataExporterSite site) throws DBException {
         super.init(site);
-        Map<Object, Object> properties = site.getProperties();
+        Map<String, Object> properties = site.getProperties();
         this.maxColumnSize = CommonUtils.toInt(properties.get(PROP_MAX_COLUMN_LENGTH), 100);
         this.showNulls = CommonUtils.getBoolean(properties.get(PROP_SHOW_NULLS), false);
         this.delimLeading = CommonUtils.getBoolean(properties.get(PROP_DELIM_LEADING), true);
+        this.delimHeader = CommonUtils.getBoolean(properties.get(PROP_DELIM_HEADER), true);
         this.delimTrailing = CommonUtils.getBoolean(properties.get(PROP_DELIM_TRAILING), true);
     }
 
@@ -83,10 +83,10 @@ public class DataExporterTXT extends StreamExporterAbstract {
     }
 
     private void printHeader() {
-        colWidths = new int[columns.size()];
+        colWidths = new int[columns.length];
 
-        for (int i = 0; i < columns.size(); i++) {
-            DBDAttributeBinding attr = columns.get(i);
+        for (int i = 0; i < columns.length; i++) {
+            DBDAttributeBinding attr = columns[i];
             int maxLength = (int) attr.getMaxLength();
             if (attr.getDataKind() == DBPDataKind.DATETIME) {
                 // DATETIME attributes are converted to strings so their actual length may differ
@@ -105,9 +105,9 @@ public class DataExporterTXT extends StreamExporterAbstract {
 
         StringBuilder txt = new StringBuilder();
         if (delimLeading) txt.append("|");
-        for (int i = 0; i < columns.size(); i++) {
+        for (int i = 0; i < columns.length; i++) {
             if (i > 0) txt.append("|");
-            DBDAttributeBinding attr = columns.get(i);
+            DBDAttributeBinding attr = columns[i];
             String attrName = getAttributeName(attr);
             txt.append(attrName);
             for (int k = colWidths[i] - attrName.length(); k > 0; k--) {
@@ -117,17 +117,19 @@ public class DataExporterTXT extends StreamExporterAbstract {
         if (delimTrailing) txt.append("|");
         txt.append("\n");
 
-        // Print divider
-        // Print header
-        if (delimLeading) txt.append("|");
-        for (int i = 0; i < columns.size(); i++) {
-            if (i > 0) txt.append("|");
-            for (int k = colWidths[i]; k > 0; k--) {
-                txt.append("-");
+        if (delimHeader) {
+            // Print divider
+            // Print header
+            if (delimLeading) txt.append("|");
+            for (int i = 0; i < columns.length; i++) {
+                if (i > 0) txt.append("|");
+                for (int k = colWidths[i]; k > 0; k--) {
+                    txt.append("-");
+                }
             }
+            if (delimTrailing) txt.append("|");
+            txt.append("\n");
         }
-        if (delimTrailing) txt.append("|");
-        txt.append("\n");
         getWriter().print(txt);
     }
 
@@ -135,9 +137,9 @@ public class DataExporterTXT extends StreamExporterAbstract {
     public void exportRow(DBCSession session, DBCResultSet resultSet, Object[] row) {
         StringBuilder txt = new StringBuilder();
         if (delimLeading) txt.append("|");
-        for (int k = 0; k < columns.size(); k++) {
+        for (int k = 0; k < columns.length; k++) {
             if (k > 0) txt.append("|");
-            DBDAttributeBinding attr = columns.get(k);
+            DBDAttributeBinding attr = columns[k];
             String displayString = getCellString(attr, row[k], DBDDisplayFormat.EDIT);
             if (displayString.length() > colWidths[k]) {
                 displayString = CommonUtils.truncateString(displayString, colWidths[k]);

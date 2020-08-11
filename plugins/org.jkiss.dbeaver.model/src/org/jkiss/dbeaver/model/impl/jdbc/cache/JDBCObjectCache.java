@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,13 +26,15 @@ import org.jkiss.dbeaver.model.DBUtils;
 import org.jkiss.dbeaver.model.exec.jdbc.JDBCResultSet;
 import org.jkiss.dbeaver.model.exec.jdbc.JDBCSession;
 import org.jkiss.dbeaver.model.exec.jdbc.JDBCStatement;
-import org.jkiss.dbeaver.model.impl.AbstractObjectCache;
 import org.jkiss.dbeaver.model.messages.ModelMessages;
 import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
 import org.jkiss.dbeaver.model.struct.DBSObject;
+import org.jkiss.dbeaver.model.struct.cache.AbstractObjectCache;
 
 import java.sql.SQLException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 
 /**
  * Various objects cache.
@@ -40,7 +42,7 @@ import java.util.*;
  */
 public abstract class JDBCObjectCache<OWNER extends DBSObject, OBJECT extends DBSObject> extends AbstractObjectCache<OWNER, OBJECT>
 {
-    public static final int DEFAULT_MAX_CACHE_SIZE = 1000000;
+    private static final int DEFAULT_MAX_CACHE_SIZE = 1000000;
 
     private static final Log log = Log.getLog(JDBCObjectCache.class);
 
@@ -54,6 +56,7 @@ public abstract class JDBCObjectCache<OWNER extends DBSObject, OBJECT extends DB
         this.maximumCacheSize = maximumCacheSize;
     }
 
+    @NotNull
     abstract protected JDBCStatement prepareObjectsStatement(@NotNull JDBCSession session, @NotNull OWNER owner)
         throws SQLException;
 
@@ -63,7 +66,7 @@ public abstract class JDBCObjectCache<OWNER extends DBSObject, OBJECT extends DB
 
     @NotNull
     @Override
-    public Collection<OBJECT> getAllObjects(@NotNull DBRProgressMonitor monitor, @Nullable OWNER owner)
+    public List<OBJECT> getAllObjects(@NotNull DBRProgressMonitor monitor, @Nullable OWNER owner)
         throws DBException
     {
         if (!isFullyCached()) {
@@ -110,7 +113,7 @@ public abstract class JDBCObjectCache<OWNER extends DBSObject, OBJECT extends DB
                                 }
 
                                 OBJECT object = fetchObject(session, owner, dbResult);
-                                if (object == null) {
+                                if (object == null || !isValidObject(monitor, owner, object)) {
                                     continue;
                                 }
                                 tmpObjectList.add(object);
@@ -129,12 +132,18 @@ public abstract class JDBCObjectCache<OWNER extends DBSObject, OBJECT extends DB
                 }
             } catch (SQLException ex) {
                 throw new DBException(ex, dataSource);
+            } catch (DBException ex) {
+                throw ex;
+            } catch (Exception ex) {
+                throw new DBException("Internal driver error", ex);
             }
-        } catch (DBException e) {
+        } catch (Exception e) {
             if (!handleCacheReadError(e)) {
                 throw e;
             }
         }
+
+        addCustomObjects(tmpObjectList);
 
         Comparator<OBJECT> comparator = getListOrderComparator();
         if (comparator != null) {
@@ -151,7 +160,7 @@ public abstract class JDBCObjectCache<OWNER extends DBSObject, OBJECT extends DB
     }
 
     // Can be implemented to provide custom cache error handler
-    protected boolean handleCacheReadError(DBException error) {
+    protected boolean handleCacheReadError(Exception error) {
         return false;
     }
 

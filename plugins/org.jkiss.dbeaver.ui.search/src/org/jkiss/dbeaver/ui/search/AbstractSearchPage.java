@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,6 +24,7 @@ import org.eclipse.search.ui.NewSearchUI;
 import org.eclipse.swt.widgets.Composite;
 import org.jkiss.dbeaver.DBException;
 import org.jkiss.dbeaver.Log;
+import org.jkiss.dbeaver.model.app.DBPProject;
 import org.jkiss.dbeaver.model.navigator.DBNDataSource;
 import org.jkiss.dbeaver.model.navigator.DBNNode;
 import org.jkiss.dbeaver.model.preferences.DBPPreferenceStore;
@@ -81,7 +82,7 @@ public abstract class AbstractSearchPage extends DialogPage implements ISearchPa
         return true;
     }
 
-    protected List<DBNNode> loadTreeState(DBRProgressMonitor monitor, String sources) {
+    protected List<DBNNode> loadTreeState(DBRProgressMonitor monitor, DBPProject project, String sources) {
         final List<DBNNode> result = new ArrayList<>();
         if (!CommonUtils.isEmpty(sources)) {
             // Keep broken datasources to make connect attempt only once
@@ -92,7 +93,7 @@ public abstract class AbstractSearchPage extends DialogPage implements ISearchPa
             while (st.hasMoreTokens()) {
                 String nodePath = st.nextToken();
                 try {
-                    DBNDataSource dsNode = DBWorkbench.getPlatform().getNavigatorModel().getDataSourceByPath(nodePath);
+                    DBNDataSource dsNode = DBWorkbench.getPlatform().getNavigatorModel().getDataSourceByPath(project, nodePath);
                     if (dsNode == null || brokenDataSources.contains(dsNode)) {
                         continue;
                     }

@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@ package org.jkiss.dbeaver.ui.data.managers;
 
 import org.eclipse.core.runtime.IAdaptable;
 import org.eclipse.jface.action.Action;
+import org.eclipse.jface.action.IAction;
 import org.eclipse.jface.action.IContributionManager;
 import org.eclipse.jface.action.Separator;
 import org.eclipse.jface.dialogs.IDialogSettings;
@@ -25,37 +26,47 @@ import org.eclipse.jface.text.IUndoManager;
 import org.eclipse.jface.text.TextViewer;
 import org.eclipse.jface.text.source.ISourceViewer;
 import org.eclipse.swt.SWT;
+import org.eclipse.swt.custom.ST;
 import org.eclipse.swt.custom.StyledText;
+import org.eclipse.swt.graphics.GC;
+import org.eclipse.swt.graphics.Point;
 import org.eclipse.ui.IEditorInput;
 import org.eclipse.ui.IEditorSite;
+import org.eclipse.ui.IWorkbenchCommandConstants;
 import org.eclipse.ui.PartInitException;
+import org.eclipse.ui.texteditor.ITextEditorActionConstants;
+import org.eclipse.ui.texteditor.ITextEditorActionDefinitionIds;
 import org.jkiss.code.NotNull;
 import org.jkiss.dbeaver.DBException;
 import org.jkiss.dbeaver.Log;
 import org.jkiss.dbeaver.model.DBPMessageType;
 import org.jkiss.dbeaver.model.data.DBDContent;
-import org.jkiss.dbeaver.model.exec.DBCException;
-import org.jkiss.dbeaver.model.impl.StringContentStorage;
+import org.jkiss.dbeaver.model.data.storage.StringContentStorage;
 import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
 import org.jkiss.dbeaver.ui.UIUtils;
+import org.jkiss.dbeaver.ui.controls.StyledTextUtils;
 import org.jkiss.dbeaver.ui.data.IStreamValueEditor;
 import org.jkiss.dbeaver.ui.data.IValueController;
 import org.jkiss.dbeaver.ui.editors.StringEditorInput;
 import org.jkiss.dbeaver.ui.editors.SubEditorSite;
+import org.jkiss.dbeaver.ui.editors.TextEditorUtils;
 import org.jkiss.dbeaver.ui.editors.content.ContentEditorInput;
 import org.jkiss.dbeaver.ui.editors.data.internal.DataEditorsActivator;
 import org.jkiss.dbeaver.ui.editors.text.BaseTextEditor;
 import org.jkiss.dbeaver.utils.RuntimeUtils;
+
+import java.nio.charset.StandardCharsets;
 
 /**
 * AbstractTextPanelEditor
 */
 public abstract class AbstractTextPanelEditor<EDITOR extends BaseTextEditor> implements IStreamValueEditor<StyledText>, IAdaptable {
 
-    public static final String PREF_TEXT_EDITOR_WORD_WRAP = "content.text.editor.word-wrap";
-    public static final String PREF_TEXT_EDITOR_AUTO_FORMAT = "content.text.editor.auto-format";
+    private static final String PREF_TEXT_EDITOR_WORD_WRAP = "content.text.editor.word-wrap";
+    private static final String PREF_TEXT_EDITOR_AUTO_FORMAT = "content.text.editor.auto-format";
 
     private static final Log log = Log.getLog(AbstractTextPanelEditor.class);
+    public static final int LONG_CONTENT_LENGTH = 10000;
 
     private IValueController valueController;
     private IEditorSite subSite;
@@ -77,18 +88,44 @@ public abstract class AbstractTextPanelEditor<EDITOR extends BaseTextEditor> imp
         assert editorControl != null;
         initEditorSettings(editorControl);
         editorControl.addDisposeListener(e -> editor.releaseEditorInput());
-        return editor.getEditorControl();
+
+        editor.addContextMenuContributor(manager -> contributeTextEditorActions(manager, editorControl));
+
+        return editorControl;
     }
 
     protected abstract EDITOR createEditorParty(IValueController valueController);
 
+    protected void contributeTextEditorActions(@NotNull IContributionManager manager, @NotNull final StyledText control) {
+        manager.removeAll();
+        //StyledTextUtils.fillDefaultStyledTextContextMenu(manager, control);
+        final Point selectionRange = control.getSelectionRange();
+
+        manager.add(new StyledTextUtils.StyledTextAction(IWorkbenchCommandConstants.EDIT_COPY, selectionRange.y > 0, control, ST.COPY));
+        manager.add(new StyledTextUtils.StyledTextAction(IWorkbenchCommandConstants.EDIT_PASTE, control.getEditable(), control, ST.PASTE));
+        manager.add(new StyledTextUtils.StyledTextAction(IWorkbenchCommandConstants.EDIT_CUT, selectionRange.y > 0, control, ST.CUT));
+        manager.add(new StyledTextUtils.StyledTextAction(IWorkbenchCommandConstants.EDIT_SELECT_ALL, true, control, ST.SELECT_ALL));
+
+        manager.add(new AutoFormatAction());
+        manager.add(new WordWrapAction(control));
+
+        manager.add(new Separator());
+        manager.add(TextEditorUtils.createFindReplaceAction(editor.getSite().getShell(), editor.getViewer().getFindReplaceTarget()));
+
+        IAction preferencesAction = editor.getAction(ITextEditorActionConstants.CONTEXT_PREFERENCES);
+        if (preferencesAction != null) {
+            manager.add(new Separator());
+            manager.add(preferencesAction);
+        }
+    }
+
     @Override
-    public void contributeActions(@NotNull IContributionManager manager, @NotNull final StyledText control) throws DBCException {
+    public void contributeActions(@NotNull IContributionManager manager, @NotNull final StyledText control) {
 
     }
 
     @Override
-    public void contributeSettings(@NotNull IContributionManager manager, @NotNull final StyledText editorControl) throws DBCException {
+    public void contributeSettings(@NotNull IContributionManager manager, @NotNull final StyledText editorControl) {
         manager.add(new Separator());
         {
             Action wwAction = new Action("Word Wrap", Action.AS_CHECK_BOX) {
@@ -106,15 +143,7 @@ public abstract class AbstractTextPanelEditor<EDITOR extends BaseTextEditor> imp
 
         BaseTextEditor textEditor = getTextEditor();
         if (textEditor != null) {
-            final Action afAction = new Action("Auto Format", Action.AS_CHECK_BOX) {
-                @Override
-                public void run() {
-                    boolean newAF = !getPanelSettings().getBoolean(PREF_TEXT_EDITOR_AUTO_FORMAT);
-                    setChecked(newAF);
-                    getPanelSettings().put(PREF_TEXT_EDITOR_AUTO_FORMAT, newAF);
-                    applyEditorStyle();
-                }
-            };
+            final Action afAction = new AutoFormatAction();
             afAction.setChecked(getPanelSettings().getBoolean(PREF_TEXT_EDITOR_AUTO_FORMAT));
             manager.add(afAction);
         }
@@ -134,19 +163,29 @@ public abstract class AbstractTextPanelEditor<EDITOR extends BaseTextEditor> imp
     private void applyEditorStyle() {
         BaseTextEditor textEditor = getTextEditor();
         if (textEditor != null && getPanelSettings().getBoolean(PREF_TEXT_EDITOR_AUTO_FORMAT)) {
-            boolean oldEditable = textEditor.getTextViewer().isEditable();
-            if (!oldEditable) {
-                textEditor.getTextViewer().setEditable(true);
-            }
-            try {
-                if (textEditor.getViewer().canDoOperation(ISourceViewer.FORMAT)) {
-                    textEditor.getViewer().doOperation(ISourceViewer.FORMAT);
+            TextViewer textViewer = textEditor.getTextViewer();
+            if (textViewer != null) {
+                StyledText textWidget = textViewer.getTextWidget();
+                if (textWidget == null || textWidget.isDisposed()) {
+                    return;
                 }
-            } catch (Exception e) {
-                log.debug("Error formatting text", e);
-            } finally {
+                textWidget.setRedraw(false);
+
+                boolean oldEditable = textViewer.isEditable();
                 if (!oldEditable) {
-                    textEditor.getTextViewer().setEditable(false);
+                    textViewer.setEditable(true);
+                }
+                try {
+                    if (textViewer.canDoOperation(ISourceViewer.FORMAT)) {
+                        textViewer.doOperation(ISourceViewer.FORMAT);
+                    }
+                } catch (Exception e) {
+                    log.debug("Error formatting text", e);
+                } finally {
+                    if (!oldEditable) {
+                        textViewer.setEditable(false);
+                    }
+                    textWidget.setRedraw(true);
                 }
             }
         }
@@ -173,13 +212,33 @@ public abstract class AbstractTextPanelEditor<EDITOR extends BaseTextEditor> imp
     @Override
     public void primeEditorValue(@NotNull DBRProgressMonitor monitor, @NotNull StyledText control, @NotNull DBDContent value) throws DBException
     {
-        monitor.beginTask("Load text", 1);
         try {
-            monitor.subTask("Loading text value");
-            final IEditorInput sqlInput = new ContentEditorInput(valueController, null, null, monitor);
-            UIUtils.syncExec(() -> {
-                editor.setInput(sqlInput);
-                applyEditorStyle();
+            // Load contents in two steps (empty + real in async mode). Workaround for some strange bug in StyledText in E4.13 (#6701)
+            TextViewer textViewer = editor.getTextViewer();
+            final ContentEditorInput textInput = new ContentEditorInput(valueController, null, null, monitor);
+            boolean longContent = textInput.getContentLength() > LONG_CONTENT_LENGTH;
+            if (longContent) {
+                UIUtils.asyncExec(() -> {
+                    editor.setInput(new StringEditorInput("Empty", "", true, StandardCharsets.UTF_8.name()));
+                });
+            }
+            UIUtils.asyncExec(() -> {
+
+                if (textViewer != null) {
+                    StyledText textWidget = textViewer.getTextWidget();
+                    if (textWidget != null && longContent) {
+                        GC gc = new GC(textWidget);
+                        try {
+                            UIUtils.drawMessageOverControl(textWidget, gc, "Loading content ... (" + textInput.getContentLength() + ")", 0);
+                            editor.setInput(textInput);
+                        } finally {
+                            gc.dispose();
+                        }
+                    } else {
+                        editor.setInput(textInput);
+                    }
+                    applyEditorStyle();
+                }
             });
         } catch (Exception e) {
             throw new DBException("Error loading text value", e);
@@ -224,4 +283,41 @@ public abstract class AbstractTextPanelEditor<EDITOR extends BaseTextEditor> imp
         return viewerSettings;
     }
 
+    private class WordWrapAction extends StyledTextUtils.StyledTextActionEx {
+
+        private final StyledText text;
+        WordWrapAction(StyledText text) {
+            super(ITextEditorActionDefinitionIds.WORD_WRAP, Action.AS_CHECK_BOX);
+            this.text = text;
+        }
+
+        @Override
+        public boolean isChecked() {
+            return text.getWordWrap();
+        }
+
+        @Override
+        public void run() {
+            text.setWordWrap(!text.getWordWrap());
+        }
+    }
+
+    private class AutoFormatAction extends Action {
+        AutoFormatAction() {
+            super("Auto Format", Action.AS_CHECK_BOX);
+        }
+
+        @Override
+        public boolean isChecked() {
+            return getPanelSettings().getBoolean(PREF_TEXT_EDITOR_AUTO_FORMAT);
+        }
+
+        @Override
+        public void run() {
+            boolean newAF = !getPanelSettings().getBoolean(PREF_TEXT_EDITOR_AUTO_FORMAT);
+            //setChecked(newAF);
+            getPanelSettings().put(PREF_TEXT_EDITOR_AUTO_FORMAT, newAF);
+            applyEditorStyle();
+        }
+    }
 }

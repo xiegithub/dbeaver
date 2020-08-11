@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,13 +22,13 @@ import org.jkiss.code.Nullable;
 import org.jkiss.dbeaver.DBException;
 import org.jkiss.dbeaver.Log;
 import org.jkiss.dbeaver.model.*;
+import org.jkiss.dbeaver.model.app.DBPProject;
 import org.jkiss.dbeaver.model.navigator.meta.DBXTreeFolder;
 import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
 import org.jkiss.dbeaver.model.struct.DBSObject;
 import org.jkiss.utils.CommonUtils;
 
 import java.util.Collection;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 
@@ -41,7 +41,8 @@ public abstract class DBNNode implements DBPNamedObject, DBPNamedObjectLocalized
     public enum NodePathType {
         resource,
         folder,
-        database;
+        database,
+        other;
 
         public String getPrefix() {
             return name() + "://";
@@ -62,7 +63,7 @@ public abstract class DBNNode implements DBPNamedObject, DBPNamedObjectLocalized
         return false;
     }
 
-    void dispose(boolean reflect) {
+    protected void dispose(boolean reflect) {
     }
 
     public DBNModel getModel() {
@@ -237,13 +238,25 @@ public abstract class DBNNode implements DBPNamedObject, DBPNamedObjectLocalized
         return null;
     }
 
+    public DBPProject getOwnerProject() {
+        for (DBNNode node = getParentNode(); node != null; node = node.getParentNode()) {
+            if (node instanceof DBNProject) {
+                return ((DBNProject) node).getProject();
+            }
+        }
+        return null;
+    }
 
     static void sortNodes(List<? extends DBNNode> nodes) {
-        Collections.sort(nodes, new Comparator<DBNNode>() {
-            @Override
-            public int compare(DBNNode o1, DBNNode o2) {
-                return o1.getName().compareToIgnoreCase(o2.getName());
+        nodes.sort((Comparator<DBNNode>) (o1, o2) -> {
+            boolean isFolder1 = o1 instanceof DBNLocalFolder;
+            boolean isFolder2 = o2 instanceof DBNLocalFolder;
+            if (isFolder1 && !isFolder2) {
+                return -1;
+            } else if (!isFolder1 && isFolder2) {
+                return 1;
             }
+            return o1.getName().compareToIgnoreCase(o2.getName());
         });
     }
 

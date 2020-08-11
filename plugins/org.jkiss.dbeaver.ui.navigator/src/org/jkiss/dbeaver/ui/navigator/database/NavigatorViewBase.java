@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,6 +20,8 @@ import org.eclipse.core.resources.IFolder;
 import org.eclipse.jface.viewers.IStructuredSelection;
 import org.eclipse.jface.viewers.TreeViewer;
 import org.eclipse.swt.SWT;
+import org.eclipse.swt.events.MouseAdapter;
+import org.eclipse.swt.events.MouseEvent;
 import org.eclipse.swt.widgets.Composite;
 import org.eclipse.ui.IEditorPart;
 import org.eclipse.ui.contexts.IContextService;
@@ -33,11 +35,14 @@ import org.jkiss.dbeaver.model.IDataSourceContainerProvider;
 import org.jkiss.dbeaver.model.navigator.*;
 import org.jkiss.dbeaver.model.navigator.meta.DBXTreeNodeHandler;
 import org.jkiss.dbeaver.model.preferences.DBPPreferenceListener;
+import org.jkiss.dbeaver.model.struct.DBSDataContainer;
 import org.jkiss.dbeaver.runtime.DBWorkbench;
 import org.jkiss.dbeaver.runtime.ui.UIServiceConnections;
 import org.jkiss.dbeaver.runtime.ui.UIServiceSQL;
+import org.jkiss.dbeaver.ui.UIExecutionQueue;
 import org.jkiss.dbeaver.ui.UIUtils;
 import org.jkiss.dbeaver.ui.controls.PropertyPageStandard;
+import org.jkiss.dbeaver.ui.editors.MultiPageDatabaseEditor;
 import org.jkiss.dbeaver.ui.navigator.INavigatorFilter;
 import org.jkiss.dbeaver.ui.navigator.INavigatorModelView;
 import org.jkiss.dbeaver.ui.navigator.NavigatorPreferences;
@@ -47,30 +52,22 @@ import org.jkiss.dbeaver.ui.navigator.database.load.TreeNodeSpecial;
 import org.jkiss.utils.CommonUtils;
 
 import java.util.Collection;
+import java.util.Collections;
+import java.util.Map;
 
 public abstract class NavigatorViewBase extends ViewPart implements INavigatorModelView, IDataSourceContainerProvider, DBPPreferenceListener {
 
-    public enum DoubleClickBehavior {
-        EDIT,
-        CONNECT,
-        SQL_EDITOR,
-        EXPAND,
-        SQL_EDITOR_NEW,
-    }
-
-    private DBNModel model;
     private DatabaseNavigatorTree tree;
     private transient Object lastSelection;
 
     protected NavigatorViewBase()
     {
         super();
-        model = DBWorkbench.getPlatform().getNavigatorModel();
     }
 
     public DBNModel getModel()
     {
-        return model;
+        return DBWorkbench.getPlatform().getNavigatorModel();
     }
 
     protected DatabaseNavigatorTree getNavigatorTree()
@@ -101,13 +98,16 @@ public abstract class NavigatorViewBase extends ViewPart implements INavigatorMo
     @Override
     public void createPartControl(Composite parent)
     {
-        this.tree = createNavigatorTree(parent, getRootNode());
+        this.tree = createNavigatorTree(parent, null);
+        this.tree.setItemRenderer(new StatisticsNavigatorNodeRenderer(this));
 
         getViewSite().setSelectionProvider(tree.getViewer());
         getSite().getService(IContextService.class).activateContext(INavigatorModelView.NAVIGATOR_CONTEXT_ID);
         getSite().getService(IContextService.class).activateContext(INavigatorModelView.NAVIGATOR_VIEW_CONTEXT_ID);
 //        EditorUtils.trackControlContext(getSite(), this.tree.getViewer().getControl(), INavigatorModelView.NAVIGATOR_CONTEXT_ID);
 //        EditorUtils.trackControlContext(getSite(), this.tree.getViewer().getControl(), INavigatorModelView.NAVIGATOR_VIEW_CONTEXT_ID);
+
+        UIExecutionQueue.queueExec(() -> tree.setInput(getRootNode()));
     }
 
     private DatabaseNavigatorTree createNavigatorTree(Composite parent, DBNNode rootNode)
@@ -115,9 +115,30 @@ public abstract class NavigatorViewBase extends ViewPart implements INavigatorMo
         // Create tree
         final DatabaseNavigatorTree navigatorTree = new DatabaseNavigatorTree(parent, rootNode, getTreeStyle(), false, getNavigatorFilter());
 
+        createTreeColumns(navigatorTree);
+
         navigatorTree.getViewer().addSelectionChangedListener(
             event -> onSelectionChange((IStructuredSelection)event.getSelection())
         );
+        navigatorTree.getViewer().getTree().addListener(SWT.MouseDoubleClick, event -> {
+            event.doit = false;
+        });
+        navigatorTree.getViewer().getTree().addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseDoubleClick(MouseEvent e) {
+                super.mouseDoubleClick(e);
+            }
+
+            @Override
+            public void mouseDown(MouseEvent e) {
+                super.mouseDown(e);
+            }
+
+            @Override
+            public void mouseUp(MouseEvent e) {
+                super.mouseUp(e);
+            }
+        });
         navigatorTree.getViewer().addDoubleClickListener(event -> {
             TreeViewer viewer = tree.getViewer();
             IStructuredSelection selection = (IStructuredSelection) viewer.getSelection();
@@ -126,8 +147,11 @@ public abstract class NavigatorViewBase extends ViewPart implements INavigatorMo
                 if ((node instanceof DBNResource && ((DBNResource) node).getResource() instanceof IFolder)) {
                     toggleNode(viewer, node);
                 } else if (node instanceof DBNDataSource) {
-                    DoubleClickBehavior dsBehaviorDefault = DoubleClickBehavior.valueOf(DBWorkbench.getPlatform().getPreferenceStore().getString(NavigatorPreferences.NAVIGATOR_CONNECTION_DOUBLE_CLICK));
-                    if (dsBehaviorDefault == DoubleClickBehavior.EXPAND) {
+                    NavigatorPreferences.DoubleClickBehavior dsBehaviorDefault = CommonUtils.valueOf(
+                        NavigatorPreferences.DoubleClickBehavior.class,
+                        DBWorkbench.getPlatform().getPreferenceStore().getString(NavigatorPreferences.NAVIGATOR_CONNECTION_DOUBLE_CLICK),
+                        NavigatorPreferences.DoubleClickBehavior.EDIT);
+                    if (dsBehaviorDefault == NavigatorPreferences.DoubleClickBehavior.EXPAND) {
                         toggleNode(viewer, node);
                     } else {
                         DBPDataSourceContainer dataSource = ((DBNDataSource) node).getObject();
@@ -137,10 +161,12 @@ public abstract class NavigatorViewBase extends ViewPart implements INavigatorMo
                                 break;
                             case CONNECT: {
                                 UIServiceConnections serviceConnections = DBWorkbench.getService(UIServiceConnections.class);
-                                if (dataSource.isConnected()) {
-                                    serviceConnections.disconnectDataSource(dataSource);
-                                } else {
-                                    serviceConnections.connectDataSource(dataSource, null);
+                                if (serviceConnections != null) {
+                                    if (dataSource.isConnected()) {
+                                        serviceConnections.disconnectDataSource(dataSource);
+                                    } else {
+                                        serviceConnections.connectDataSource(dataSource, null);
+                                    }
                                 }
                                 break;
                             }
@@ -163,12 +189,23 @@ public abstract class NavigatorViewBase extends ViewPart implements INavigatorMo
                 } else if (node instanceof TreeNodeSpecial) {
                     ((TreeNodeSpecial) node).handleDefaultAction(navigatorTree);
                 } else {
-                    DoubleClickBehavior dcBehaviorDefault = DoubleClickBehavior.valueOf(DBWorkbench.getPlatform().getPreferenceStore().getString(NavigatorPreferences.NAVIGATOR_OBJECT_DOUBLE_CLICK));
+                    String defaultEditorPageId = null;
+                    NavigatorPreferences.DoubleClickBehavior dcBehaviorDefault = CommonUtils.valueOf(
+                        NavigatorPreferences.DoubleClickBehavior.class,
+                        DBWorkbench.getPlatform().getPreferenceStore().getString(NavigatorPreferences.NAVIGATOR_OBJECT_DOUBLE_CLICK));
+
+                    if (node instanceof DBNDatabaseNode && ((DBNDatabaseNode) node).getObject() instanceof DBSDataContainer) {
+                        defaultEditorPageId = DBWorkbench.getPlatform().getPreferenceStore().getString(NavigatorPreferences.NAVIGATOR_DEFAULT_EDITOR_PAGE);
+                    }
                     boolean hasChildren = node instanceof DBNNode && ((DBNNode) node).hasChildren(true);
-                    if (hasChildren && dcBehaviorDefault == DoubleClickBehavior.EXPAND) {
+                    if (hasChildren && dcBehaviorDefault == NavigatorPreferences.DoubleClickBehavior.EXPAND) {
                         toggleNode(viewer, node);
                     } else {
-                        NavigatorUtils.executeNodeAction(DBXTreeNodeHandler.Action.open, node, getSite());
+                        Map<String, Object> parameters = null;
+                        if (!CommonUtils.isEmpty(defaultEditorPageId)) {
+                            parameters = Collections.singletonMap(MultiPageDatabaseEditor.PARAMETER_ACTIVE_PAGE, defaultEditorPageId);
+                        }
+                        NavigatorUtils.executeNodeAction(DBXTreeNodeHandler.Action.open, node, parameters, getSite());
                     }
                 }
             }
@@ -184,6 +221,10 @@ public abstract class NavigatorViewBase extends ViewPart implements INavigatorMo
         return navigatorTree;
     }
 
+    protected void createTreeColumns(DatabaseNavigatorTree tree) {
+
+    }
+
     private void toggleNode(TreeViewer viewer, Object node) {
         if (Boolean.TRUE.equals(viewer.getExpandedState(node))) {
             viewer.collapseToLevel(node, 1);
@@ -192,7 +233,7 @@ public abstract class NavigatorViewBase extends ViewPart implements INavigatorMo
         }
     }
 
-    protected void onSelectionChange(IStructuredSelection structSel) {
+    private void onSelectionChange(IStructuredSelection structSel) {
         if (!structSel.isEmpty()) {
             lastSelection = structSel.getFirstElement();
             if (lastSelection instanceof DBNNode) {
@@ -216,7 +257,7 @@ public abstract class NavigatorViewBase extends ViewPart implements INavigatorMo
 
     protected int getTreeStyle()
     {
-        return SWT.MULTI;
+        return SWT.MULTI | SWT.FULL_SELECTION;
     }
 
     @Override
@@ -224,7 +265,6 @@ public abstract class NavigatorViewBase extends ViewPart implements INavigatorMo
     {
         DBWorkbench.getPlatform().getPreferenceStore().removePropertyChangeListener(this);
 
-        model = null;
         super.dispose();
     }
 
@@ -286,6 +326,11 @@ public abstract class NavigatorViewBase extends ViewPart implements INavigatorMo
             case NavigatorPreferences.NAVIGATOR_COLOR_ALL_NODES:
             case NavigatorPreferences.NAVIGATOR_GROUP_BY_DRIVER:
                 tree.getViewer().refresh();
+                break;
+            case NavigatorPreferences.NAVIGATOR_SHOW_STATISTICS_INFO:
+            case NavigatorPreferences.NAVIGATOR_SHOW_CONNECTION_HOST_NAME:
+            case NavigatorPreferences.NAVIGATOR_SHOW_NODE_ACTIONS:
+                tree.getViewer().getTree().redraw();
                 break;
         }
     }

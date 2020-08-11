@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,35 +18,25 @@ package org.jkiss.dbeaver.model.impl.jdbc;
 
 import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
-import org.jkiss.dbeaver.DBException;
 import org.jkiss.dbeaver.Log;
 import org.jkiss.dbeaver.ModelPreferences;
 import org.jkiss.dbeaver.model.DBPDataKind;
 import org.jkiss.dbeaver.model.DBPDataSource;
 import org.jkiss.dbeaver.model.DBPDataSourceTask;
 import org.jkiss.dbeaver.model.DBPDataTypeProvider;
-import org.jkiss.dbeaver.model.edit.DBEPersistAction;
-import org.jkiss.dbeaver.model.edit.DBERegistry;
 import org.jkiss.dbeaver.model.exec.jdbc.JDBCPreparedStatement;
 import org.jkiss.dbeaver.model.exec.jdbc.JDBCResultSet;
 import org.jkiss.dbeaver.model.exec.jdbc.JDBCSession;
-import org.jkiss.dbeaver.model.impl.jdbc.struct.JDBCTable;
-import org.jkiss.dbeaver.model.impl.sql.edit.SQLObjectEditor;
-import org.jkiss.dbeaver.model.impl.sql.edit.struct.SQLTableManager;
-import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
-import org.jkiss.dbeaver.model.sql.SQLDataSource;
 import org.jkiss.dbeaver.model.sql.SQLDialect;
 import org.jkiss.dbeaver.model.sql.SQLUtils;
 import org.jkiss.dbeaver.model.struct.DBSObjectFilter;
 import org.jkiss.dbeaver.model.struct.rdb.DBSForeignKeyModifyRule;
-import org.jkiss.dbeaver.model.struct.rdb.DBSTable;
 import org.jkiss.dbeaver.utils.RuntimeUtils;
 import org.jkiss.utils.CommonUtils;
 
 import java.lang.reflect.InvocationTargetException;
 import java.math.BigDecimal;
 import java.sql.*;
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -446,39 +436,6 @@ public class JDBCUtils {
         return value == null ? null : value.trim();
     }
 
-    public static void dumpResultSet(ResultSet dbResult)
-    {
-        try {
-            ResultSetMetaData md = dbResult.getMetaData();
-            int count = md.getColumnCount();
-            dumpResultSetMetaData(dbResult);
-            while (dbResult.next()) {
-                for (int i = 1; i <= count; i++) {
-                    String colValue = dbResult.getString(i);
-                    System.out.print(colValue + "\t");
-                }
-                System.out.println();
-            }
-            System.out.println();
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-    }
-
-    public static void dumpResultSetMetaData(ResultSet dbResult)
-    {
-        try {
-            ResultSetMetaData md = dbResult.getMetaData();
-            int count = md.getColumnCount();
-            for (int i = 1; i <= count; i++) {
-                System.out.print(md.getColumnName(i) + " [" + md.getColumnTypeName(i) + "]\t");
-            }
-            System.out.println();
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-    }
-
     public static boolean isConnectionAlive(DBPDataSource dataSource, Connection connection)
     {
         try {
@@ -498,8 +455,7 @@ public class JDBCUtils {
         }
 
         // Run ping query
-        final String testSQL = (dataSource instanceof SQLDataSource) ?
-            ((SQLDataSource) dataSource).getSQLDialect().getTestSQL() : null;
+        final String testSQL = dataSource.getSQLDialect().getTestSQL();
         int invalidateTimeout = dataSource.getContainer().getPreferenceStore().getInt(ModelPreferences.CONNECTION_VALIDATION_TIMEOUT);
 
         // Invalidate in non-blocking task.
@@ -627,13 +583,22 @@ public class JDBCUtils {
         }
     }
 
-    public static void executeStatement(Connection session, String sql) throws SQLException
-    {
+    public static void executeStatement(Connection session, String sql, Object ... params) throws SQLException {
+        try (PreparedStatement dbStat = session.prepareStatement(sql)) {
+            if (params != null) {
+                for (int i = 0; i < params.length; i++) {
+                    dbStat.setObject(i + 1, params[i]);
+                }
+            }
+            dbStat.execute();
+        }
+    }
+
+    public static void executeStatement(Connection session, String sql) throws SQLException {
         try (Statement dbStat = session.createStatement()) {
             dbStat.execute(sql);
         }
     }
-
 
     @Nullable
     public static String queryString(JDBCSession session, String sql, Object... args) throws SQLException
@@ -797,5 +762,6 @@ public class JDBCUtils {
     public static boolean queryHasOutputParameters(SQLDialect sqlDialect, String sqlQuery) {
         return sqlQuery.contains("?");
     }
+
 
 }

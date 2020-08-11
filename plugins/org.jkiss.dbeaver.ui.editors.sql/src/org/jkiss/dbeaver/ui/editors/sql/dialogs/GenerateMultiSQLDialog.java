@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -36,12 +36,17 @@ import org.jkiss.dbeaver.model.DBIcon;
 import org.jkiss.dbeaver.model.DBPEvaluationContext;
 import org.jkiss.dbeaver.model.DBUtils;
 import org.jkiss.dbeaver.model.exec.*;
+import org.jkiss.dbeaver.model.navigator.DBNDatabaseNode;
+import org.jkiss.dbeaver.model.navigator.DBNEvent;
+import org.jkiss.dbeaver.model.navigator.DBNUtils;
 import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
 import org.jkiss.dbeaver.model.struct.DBSObject;
+import org.jkiss.dbeaver.runtime.DBWorkbench;
 import org.jkiss.dbeaver.runtime.jobs.DataSourceJob;
 import org.jkiss.dbeaver.ui.DBeaverIcons;
 import org.jkiss.dbeaver.ui.UIUtils;
 
+import java.lang.reflect.InvocationTargetException;
 import java.util.*;
 
 /**
@@ -56,7 +61,7 @@ public abstract class GenerateMultiSQLDialog<T extends DBSObject> extends Genera
 
     private static final String DIALOG_ID = "GenerateMultiSQLDialog";
 
-    protected final Collection<T> selectedObjects;
+    private final Collection<T> selectedObjects;
     private Table objectsTable;
 
     public GenerateMultiSQLDialog(
@@ -72,7 +77,7 @@ public abstract class GenerateMultiSQLDialog<T extends DBSObject> extends Genera
             objects);
     }
 
-    public GenerateMultiSQLDialog(
+    private GenerateMultiSQLDialog(
         IWorkbenchPartSite partSite,
         DBCExecutionContext context,
         String title,
@@ -104,7 +109,7 @@ public abstract class GenerateMultiSQLDialog<T extends DBSObject> extends Genera
             generateObjectCommand(lines, object);
         }
 
-        return lines.toArray(new String[lines.size()]);
+        return lines.toArray(new String[0]);
     }
 
     public List<T> getCheckedObjects() {
@@ -161,7 +166,7 @@ public abstract class GenerateMultiSQLDialog<T extends DBSObject> extends Genera
             objectsSQL.put(object, lines);
         }
         final DataSourceJob job = new DataSourceJob(jobName, getExecutionContext()) {
-            public Exception objectProcessingError;
+            Exception objectProcessingError;
 
             @Override
             protected IStatus run(final DBRProgressMonitor monitor)
@@ -234,9 +239,27 @@ public abstract class GenerateMultiSQLDialog<T extends DBSObject> extends Genera
             @Override
             public void done(IJobChangeEvent event) {
                 if (needsRefreshOnFinish()) {
-                    for (T object : selectedObjects) {
-                        DBUtils.fireObjectRefresh(object);
-                    }
+                    List<T> objectToRefresh = new ArrayList<>(selectedObjects);
+                    UIUtils.asyncExec(() -> {
+                        try {
+                            UIUtils.runInProgressDialog(monitor -> {
+                                monitor.beginTask("Refresh objects", objectToRefresh.size());
+                                for (T object : objectToRefresh) {
+                                    try {
+                                        DBNDatabaseNode objectNode = DBNUtils.getNodeByObject(object);
+                                        if (objectNode != null) {
+                                            objectNode.refreshNode(monitor, DBNEvent.FORCE_REFRESH);
+                                        }
+                                    } catch (Exception e) {
+                                        log.error("Error refreshing object '" + object.getName() + "'", e);
+                                    }
+                                }
+                                monitor.done();
+                            });
+                        } catch (InvocationTargetException e) {
+                            DBWorkbench.getPlatformUI().showError("Objects refresh", "Error refreshing navigator objects", e);
+                        }
+                    });
                 }
             }
         });
@@ -253,7 +276,7 @@ public abstract class GenerateMultiSQLDialog<T extends DBSObject> extends Genera
 
     protected abstract void generateObjectCommand(List<String> sql, T object);
 
-    protected static <T extends DBSObject> DBCExecutionContext getContextFromObjects(@NotNull Collection<T> objects, boolean meta) {
+    private static <T extends DBSObject> DBCExecutionContext getContextFromObjects(@NotNull Collection<T> objects, boolean meta) {
         Iterator<T> iterator = objects.iterator();
         if (iterator.hasNext()) {
             T object = iterator.next();
@@ -267,11 +290,11 @@ public abstract class GenerateMultiSQLDialog<T extends DBSObject> extends Genera
     private void commitChanges(DBCSession session) {
         try {
             DBCTransactionManager txnManager = DBUtils.getTransactionManager(session.getExecutionContext());
-            if (txnManager != null && !txnManager.isAutoCommit()) {
+            if (txnManager != null && txnManager.isSupportsTransactions() && !txnManager.isAutoCommit()) {
                 txnManager.commit(session);
             }
         } catch (Throwable e) {
-            log.error("Error commiting transactions", e);
+            log.error("Error committing transactions", e);
         }
     }
 }

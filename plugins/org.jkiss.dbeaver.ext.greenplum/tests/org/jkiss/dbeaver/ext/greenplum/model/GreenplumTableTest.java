@@ -1,7 +1,6 @@
 package org.jkiss.dbeaver.ext.greenplum.model;
 
 import org.jkiss.dbeaver.ext.postgresql.model.*;
-import org.jkiss.dbeaver.ext.greenplum.model.GreenplumDataSource;
 import org.jkiss.dbeaver.model.exec.DBCExecutionPurpose;
 import org.jkiss.dbeaver.model.exec.jdbc.JDBCResultSet;
 import org.jkiss.dbeaver.model.exec.jdbc.JDBCSession;
@@ -57,6 +56,7 @@ public class GreenplumTableTest {
     @Before
     public void setUp() throws Exception {
         Mockito.when(mockSchema.getDatabase()).thenReturn(mockDatabase);
+        Mockito.when(mockSchema.getSchema()).thenReturn(mockSchema);
         Mockito.when(mockSchema.getDataSource()).thenReturn(mockDataSource);
         Mockito.when(mockSchema.getName()).thenReturn(exampleSchemaName);
         Mockito.when(mockSchema.getTableCache()).thenReturn(mockTableCache);
@@ -67,28 +67,11 @@ public class GreenplumTableTest {
         Mockito.when(mockDataSource.getDefaultInstance()).thenReturn(mockDatabase);
 
         Mockito.when(mockDatabase.getName()).thenReturn(exampleDatabaseName);
-        Mockito.when(mockDatabase.getDefaultContext(true)).thenReturn(mockContext);
+        Mockito.when(mockDatabase.getDefaultContext(Mockito.anyObject(), Mockito.anyBoolean())).thenReturn(mockContext);
+        Mockito.when(mockDatabase.isInstanceConnected()).thenReturn(true);
 
         Mockito.when(mockResults.getString("relname")).thenReturn(exampleTableName);
         Mockito.when(mockResults.getString("relpersistence")).thenReturn("x");
-    }
-
-    @Test
-    public void addUnloggedClause_whenTableDDLContainsCreateKeyword_itIsReplacedWithCreateUnlogged() {
-        String tableDdl = "CREATE TABLE";
-
-        table = new GreenplumTable(mockSchema, mockResults);
-
-        Assert.assertEquals(table.addUnloggedClause(tableDdl), "CREATE UNLOGGED TABLE");
-    }
-
-    @Test
-    public void addUnloggedClause_whenTableDDLDoesNotContainCreateKeyword_itIsReplacedWithCreateUnlogged() {
-        String tableDdl = "SOME TABLE";
-
-        table = new GreenplumTable(mockSchema, mockResults);
-
-        Assert.assertEquals(table.addUnloggedClause(tableDdl), tableDdl);
     }
 
     @Test
@@ -124,7 +107,6 @@ public class GreenplumTableTest {
         Mockito.when(mockSchema.getTableCache()).thenReturn(mockTableCache);
 
         table = new GreenplumTable(mockSchema, mockResults);
-
         Mockito.when(mockTableCache.getChildren(mockMonitor, mockSchema, table))
                 .thenReturn(mockColumns);
 

@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,6 +22,7 @@ import org.jkiss.dbeaver.Log;
 import org.jkiss.dbeaver.model.DBConstants;
 import org.jkiss.dbeaver.model.DBPEvaluationContext;
 import org.jkiss.dbeaver.model.DBUtils;
+import org.jkiss.dbeaver.model.exec.DBCExecutionPurpose;
 import org.jkiss.dbeaver.model.exec.jdbc.JDBCPreparedStatement;
 import org.jkiss.dbeaver.model.exec.jdbc.JDBCResultSet;
 import org.jkiss.dbeaver.model.exec.jdbc.JDBCSession;
@@ -34,12 +35,14 @@ import org.jkiss.utils.ArrayUtils;
 import org.jkiss.utils.CommonUtils;
 
 import java.sql.SQLException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 
 /**
  * OracleStructureAssistant
  */
-public class OracleStructureAssistant implements DBSStructureAssistant
+public class OracleStructureAssistant implements DBSStructureAssistant<OracleExecutionContext>
 {
     static protected final Log log = Log.getLog(OracleStructureAssistant.class);
 
@@ -101,7 +104,8 @@ public class OracleStructureAssistant implements DBSStructureAssistant
     @NotNull
     @Override
     public List<DBSObjectReference> findObjectsByMask(
-        DBRProgressMonitor monitor,
+        @NotNull DBRProgressMonitor monitor,
+        @NotNull OracleExecutionContext executionContext,
         DBSObject parentObject,
         DBSObjectType[] objectTypes,
         String objectNameMask,
@@ -110,18 +114,22 @@ public class OracleStructureAssistant implements DBSStructureAssistant
         throws DBException
     {
         OracleSchema schema = parentObject instanceof OracleSchema ? (OracleSchema) parentObject : null;
-        try (JDBCSession session = DBUtils.openMetaSession(monitor, dataSource, "Find objects by name")) {
-            List<DBSObjectReference> objects = new ArrayList<>();
 
-            // Search all objects
-            searchAllObjects(session, schema, objectNameMask, objectTypes, caseSensitive, maxResults, objects);
+        try (JDBCSession session = executionContext.openSession(monitor, DBCExecutionPurpose.META, "Find objects by name")) {
+            List<DBSObjectReference> objects = new ArrayList<>();
 
             if (ArrayUtils.contains(objectTypes, OracleObjectType.CONSTRAINT, OracleObjectType.FOREIGN_KEY) && objects.size() < maxResults) {
                 // Search constraints
                 findConstraintsByMask(session, schema, objectNameMask, objectTypes, maxResults, objects);
+                if (!containsOnlyConstraintOrFK(objectTypes)) {
+                    searchAllObjects(session, schema, objectNameMask, objectTypes, caseSensitive, maxResults, objects);
+                }
+            } else {
+                // Search all objects
+                searchAllObjects(session, schema, objectNameMask, objectTypes, caseSensitive, maxResults, objects);
             }
             // Sort objects. Put ones in the current schema first
-            final OracleSchema activeSchema = dataSource.getDefaultObject();
+            final OracleSchema activeSchema = executionContext.getContextDefaults().getDefaultSchema();
             objects.sort((o1, o2) -> {
                 if (CommonUtils.equalObjects(o1.getContainer(), o2.getContainer())) {
                     return o1.getName().compareTo(o2.getName());
@@ -160,10 +168,10 @@ public class OracleStructureAssistant implements DBSStructureAssistant
         // Load tables
         try (JDBCPreparedStatement dbStat = session.prepareStatement(
             "SELECT " + OracleUtils.getSysCatalogHint((OracleDataSource) session.getDataSource()) + " OWNER, TABLE_NAME, CONSTRAINT_NAME, CONSTRAINT_TYPE\n" +
-                "FROM " + OracleUtils.getAdminAllViewPrefix(monitor, (OracleDataSource) session.getDataSource(), "VIEWS") + "\n" +
+                "FROM " + OracleUtils.getAdminAllViewPrefix(monitor, (OracleDataSource) session.getDataSource(), "CONSTRAINTS") + "\n" +
                 "WHERE CONSTRAINT_NAME like ?" + (!hasFK ? " AND CONSTRAINT_TYPE<>'R'" : "") +
                 (schema != null ? " AND OWNER=?" : ""))) {
-            dbStat.setString(1, constrNameMask);
+            dbStat.setString(1, constrNameMask.toUpperCase());
             if (schema != null) {
                 dbStat.setString(2, schema.getName());
             }
@@ -243,13 +251,14 @@ public class OracleStructureAssistant implements DBSStructureAssistant
         try (JDBCPreparedStatement dbStat = session.prepareStatement(
             "SELECT " + OracleUtils.getSysCatalogHint(dataSource) + " DISTINCT OWNER,OBJECT_NAME,OBJECT_TYPE FROM " +
                 "   (SELECT OWNER,OBJECT_NAME,OBJECT_TYPE FROM " + OracleUtils.getAdminAllViewPrefix(session.getProgressMonitor(), dataSource, "OBJECTS") + " WHERE " +
-                    "OBJECT_TYPE IN (" + objectTypeClause + ") AND OBJECT_NAME LIKE ? " +
+                    "OBJECT_TYPE IN (" + objectTypeClause + ") AND " + (!caseSensitive ? "UPPER(OBJECT_NAME)" : "OBJECT_NAME") + " LIKE ? " +
                     (schema == null ? "" : " AND OWNER=?") +
                     "UNION ALL\n" +
                 "SELECT " + OracleUtils.getSysCatalogHint(dataSource) + " O.OWNER,O.OBJECT_NAME,O.OBJECT_TYPE\n" +
                     "FROM " + OracleUtils.getAdminAllViewPrefix(session.getProgressMonitor(), dataSource, "SYNONYMS") + " S," +
                         OracleUtils.getAdminAllViewPrefix(session.getProgressMonitor(), dataSource, "OBJECTS") + " O\n" +
-                    "WHERE O.OWNER=S.TABLE_OWNER AND O.OBJECT_NAME=S.TABLE_NAME AND S.OWNER='PUBLIC' AND S.SYNONYM_NAME LIKE ?)" +
+                    "WHERE O.OWNER=S.TABLE_OWNER AND O.OBJECT_NAME=S.TABLE_NAME AND S.OWNER='PUBLIC' AND " +
+                    (!caseSensitive ? "UPPER(S.SYNONYM_NAME)" : "S.SYNONYM_NAME") + "  LIKE ?)" +
                 "\nORDER BY OBJECT_NAME")) {
             if (!caseSensitive) {
                 objectNameMask = objectNameMask.toUpperCase();
@@ -301,6 +310,13 @@ public class OracleStructureAssistant implements DBSStructureAssistant
             }
         }
     }
-
-
+    
+    private boolean containsOnlyConstraintOrFK(DBSObjectType[] objectTypes) {
+        for (DBSObjectType objectType : objectTypes) {
+            if (!(objectType == OracleObjectType.CONSTRAINT || objectType == OracleObjectType.FOREIGN_KEY)) {
+                return false;
+            }
+        }
+        return true;
+    }
 }

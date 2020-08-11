@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  * Copyright (C) 2019 Dmitriy Dubson (ddubson@pivotal.io)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -22,7 +22,7 @@ import org.jkiss.dbeaver.ext.greenplum.model.GreenplumSchema;
 import org.jkiss.dbeaver.ext.postgresql.edit.PostgreProcedureManager;
 import org.jkiss.dbeaver.ext.postgresql.model.PostgreProcedure;
 import org.jkiss.dbeaver.ext.postgresql.model.PostgreSchema;
-import org.jkiss.dbeaver.model.impl.DBSObjectCache;
+import org.jkiss.dbeaver.model.struct.cache.DBSObjectCache;
 
 public class GreenplumFunctionManager extends PostgreProcedureManager {
     @Nullable

@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -46,6 +46,7 @@ public abstract class PostgrePlanNodeBase<NODE extends PostgrePlanNodeBase<?>> e
     public static final String ATTR_TOTAL_COST = "Total-Cost";
     public static final String ATTR_STARTUP_COST = "Startup-Cost";
     public static final String ATTR_INDEX_NAME = "Index-Name";
+    public static final String ATTR_CTE_NAME = "CTE-Name";
     public static final String ATTR_ACTUAL_TOTAL_TIME = "Actual-Total-Time";
     public static final String ATTR_ACTUAL_ROWS = "Actual-Rows";
     public static final String ATTR_PLAN_ROWS = "Plan-Rows";
@@ -97,6 +98,9 @@ public abstract class PostgrePlanNodeBase<NODE extends PostgrePlanNodeBase<?>> e
         }
         if (entity == null) {
             entity = attributes.get(ATTR_INDEX_NAME);
+        }
+        if (entity == null) {
+            entity = attributes.get(ATTR_CTE_NAME);
         }
         String startCost = attributes.get(ATTR_STARTUP_COST);
         String totalCost = attributes.get(ATTR_TOTAL_COST);
@@ -311,7 +315,7 @@ public abstract class PostgrePlanNodeBase<NODE extends PostgrePlanNodeBase<?>> e
     }
 
     @Override
-    public DBPPropertyDescriptor[] getPropertyDescriptors2() {
+    public DBPPropertyDescriptor[] getProperties() {
         DBPPropertyDescriptor[] props = new DBPPropertyDescriptor[attributes.size()];
         int index = 0;
         for (Map.Entry<String, String> attr : attributes.entrySet()) {
@@ -330,38 +334,33 @@ public abstract class PostgrePlanNodeBase<NODE extends PostgrePlanNodeBase<?>> e
     }
 
     @Override
-    public Object getPropertyValue(@Nullable DBRProgressMonitor monitor, Object id) {
+    public Object getPropertyValue(@Nullable DBRProgressMonitor monitor, String id) {
         return attributes.get(id.toString());
     }
 
     @Override
-    public boolean isPropertySet(Object id) {
+    public boolean isPropertySet(String id) {
         return false;//attributes.containsKey(id.toString());
     }
 
     @Override
-    public boolean isPropertyResettable(Object id) {
+    public boolean isPropertyResettable(String id) {
         return false;
     }
 
     @Override
-    public void resetPropertyValue(@Nullable DBRProgressMonitor monitor, Object id) {
+    public void resetPropertyValue(@Nullable DBRProgressMonitor monitor, String id) {
 
     }
 
     @Override
-    public void resetPropertyValueToDefault(Object id) {
+    public void resetPropertyValueToDefault(String id) {
 
     }
 
     @Override
-    public void setPropertyValue(@Nullable DBRProgressMonitor monitor, Object id, Object value) {
+    public void setPropertyValue(@Nullable DBRProgressMonitor monitor, String id, Object value) {
 
-    }
-
-    @Override
-    public boolean isDirty(Object id) {
-        return false;
     }
 
 }

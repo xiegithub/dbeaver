@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  * Copyright (C) 2011-2012 Eugene Fradkin (eugene.fradkin@gmail.com)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -81,14 +81,24 @@ public class UINavigatorMessages extends NLS {
     public static String registry_entity_editor_descriptor_description;
     public static String registry_entity_editor_descriptor_name;
     public static String pref_page_database_general_group_navigator;
+    public static String pref_page_database_navigator_group_misc;
+    public static String pref_page_database_navigator_group_behavior;
 
     // DatabaseNavigator
     public static String pref_page_database_general_label_expand_navigator_tree;
+    public static String pref_page_database_general_label_restore_state_depth;
+    public static String pref_page_database_general_label_restore_state_depth_tip;
     public static String pref_page_database_general_label_show_tips_in_tree;
     public static String pref_page_database_general_label_show_tips_in_tree_tip;
     public static String pref_page_database_general_label_order_elements_alphabetically;
     public static String pref_page_database_general_label_folders_first;
     public static String pref_page_database_general_label_folders_first_tip;
+    public static String pref_page_database_general_label_show_host_name;
+    public static String pref_page_database_general_label_show_host_name_tip;
+    public static String pref_page_database_general_label_show_statistics;
+    public static String pref_page_database_general_label_show_statistics_tip;
+    public static String pref_page_database_general_label_show_node_actions;
+    public static String pref_page_database_general_label_show_node_actions_tip;
     public static String pref_page_database_general_label_color_all_nodes;
     public static String pref_page_database_general_label_color_all_nodes_tip;
     public static String pref_page_database_general_label_show_folder_placeholders;
@@ -105,6 +115,8 @@ public class UINavigatorMessages extends NLS {
     public static String pref_page_database_general_label_double_click_connection_open_sqleditor;
     public static String pref_page_database_general_label_double_click_connection_open_new_sqleditor;
     public static String pref_page_database_general_label_double_click_connection_expand_collapse;
+    public static String pref_page_navigator_default_editor_page_label;
+    public static String pref_page_navigator_default_editor_page_tip;
 
     // ProjectSettings
     public static String pref_page_projects_settings_label_resource_location;

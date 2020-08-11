@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,11 +29,10 @@ import org.jkiss.dbeaver.model.exec.DBCSession;
 import org.jkiss.dbeaver.model.impl.data.ProxyValueHandler;
 import org.jkiss.dbeaver.model.impl.jdbc.data.JDBCContentBytes;
 import org.jkiss.dbeaver.model.struct.DBSTypedObject;
+import org.jkiss.dbeaver.utils.GeneralUtils;
 
-import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 /**
  * Transforms binary attribute value into UUID.
@@ -41,7 +40,7 @@ import java.util.UUID;
 public class UUIDAttributeTransformer implements DBDAttributeTransformer {
 
     @Override
-    public void transformAttribute(@NotNull DBCSession session, @NotNull DBDAttributeBinding attribute, @NotNull List<Object[]> rows, @NotNull Map<String, String> options) throws DBException {
+    public void transformAttribute(@NotNull DBCSession session, @NotNull DBDAttributeBinding attribute, @NotNull List<Object[]> rows, @NotNull Map<String, Object> options) throws DBException {
         attribute.setPresentationAttribute(
             new TransformerPresentationAttribute(attribute, "UUID", -1, DBPDataKind.BINARY));
 
@@ -63,8 +62,11 @@ public class UUIDAttributeTransformer implements DBDAttributeTransformer {
                 bytes = ((JDBCContentBytes) value).getRawValue();
             }
             if (bytes != null) {
-                ByteBuffer bb = ByteBuffer.wrap(bytes);
-                return new UUID(bb.getLong(), bb.getLong()).toString();
+                try {
+                    return GeneralUtils.getUUIDFromBytes(bytes).toString();
+                } catch (Exception e) {
+                    return String.valueOf(value);
+                }
             }
             return super.getValueDisplayString(column, value, format);
         }

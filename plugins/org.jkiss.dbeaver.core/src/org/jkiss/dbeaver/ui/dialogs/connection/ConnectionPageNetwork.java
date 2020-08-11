@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -30,6 +30,7 @@ import org.eclipse.swt.widgets.TabItem;
 import org.jkiss.dbeaver.DBException;
 import org.jkiss.dbeaver.Log;
 import org.jkiss.dbeaver.core.CoreMessages;
+import org.jkiss.dbeaver.model.DBPDataSourceContainer;
 import org.jkiss.dbeaver.model.connection.DBPDriver;
 import org.jkiss.dbeaver.model.net.DBWHandlerConfiguration;
 import org.jkiss.dbeaver.registry.DataSourceDescriptor;
@@ -47,6 +48,7 @@ import java.util.Map;
 /**
  * Network handlers edit dialog page
  */
+@Deprecated
 public class ConnectionPageNetwork extends ConnectionWizardPage {
 
     public static final String PAGE_NAME = ConnectionPageNetwork.class.getSimpleName();
@@ -127,12 +129,12 @@ public class ConnectionPageNetwork extends ConnectionWizardPage {
                 enableHandlerContent(descriptor);
             }
         });
-        Composite handlerComposite = UIUtils.createPlaceholder(composite, 1);
+        Composite handlerComposite = UIUtils.createComposite(composite, 1);
         configurations.put(descriptor, new HandlerBlock(configurator, handlerComposite, useHandlerCheck, tabItem));
 
         handlerComposite.setLayoutData(new GridData(GridData.FILL_BOTH));
 
-        configurator.createControl(handlerComposite);
+        configurator.createControl(handlerComposite, this::updatePageCompletion);
     }
 
     @Override
@@ -163,7 +165,7 @@ public class ConnectionPageNetwork extends ConnectionWizardPage {
         for (NetworkHandlerDescriptor descriptor : registry.getDescriptors(dataSource)) {
             DBWHandlerConfiguration configuration = dataSource.getConnectionConfiguration().getHandler(descriptor.getId());
             if (configuration == null) {
-                configuration = new DBWHandlerConfiguration(descriptor, driver);
+                configuration = new DBWHandlerConfiguration(descriptor, dataSource);
             }
             HandlerBlock handlerBlock = configurations.get(descriptor);
             if (handlerBlock == null) {
@@ -202,7 +204,7 @@ public class ConnectionPageNetwork extends ConnectionWizardPage {
     }
 
     @Override
-    public void saveSettings(DataSourceDescriptor dataSource) {
+    public void saveSettings(DBPDataSourceContainer dataSource) {
         boolean foundHandlers = false;
         java.util.List<DBWHandlerConfiguration> handlers = new ArrayList<>();
         for (HandlerBlock handlerBlock : configurations.values()) {

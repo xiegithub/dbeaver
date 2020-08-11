@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,6 +20,7 @@ import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
 import org.jkiss.dbeaver.model.exec.DBCExecutionContext;
 import org.jkiss.dbeaver.model.exec.DBCExecutionSource;
+import org.jkiss.dbeaver.model.exec.DBCScriptContext;
 import org.jkiss.dbeaver.model.struct.DBSDataContainer;
 import org.jkiss.dbeaver.runtime.jobs.DataSourceJob;
 
@@ -28,7 +29,7 @@ abstract class ResultSetJobAbstract extends DataSourceJob implements DBCExecutio
     protected final DBSDataContainer dataContainer;
     protected final ResultSetViewer controller;
 
-    protected ResultSetJobAbstract(String name, DBSDataContainer dataContainer, ResultSetViewer controller, DBCExecutionContext executionContext) {
+    ResultSetJobAbstract(String name, DBSDataContainer dataContainer, ResultSetViewer controller, DBCExecutionContext executionContext) {
         super(name, executionContext);
         this.dataContainer = dataContainer;
         this.controller = controller;
@@ -43,7 +44,7 @@ abstract class ResultSetJobAbstract extends DataSourceJob implements DBCExecutio
 
     @NotNull
     @Override
-    public Object getExecutionController() {
+    public IResultSetController getExecutionController() {
         return controller;
     }
 
@@ -53,4 +54,9 @@ abstract class ResultSetJobAbstract extends DataSourceJob implements DBCExecutio
         return this;
     }
 
+    @Nullable
+    @Override
+    public DBCScriptContext getScriptContext() {
+        return null;
+    }
 }

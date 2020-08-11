@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,12 +16,12 @@
  */
 package org.jkiss.dbeaver.model.impl.struct;
 
+import org.jkiss.dbeaver.model.DBIcon;
 import org.jkiss.dbeaver.model.DBPImage;
 import org.jkiss.dbeaver.model.struct.DBSDataType;
 import org.jkiss.dbeaver.model.struct.DBSObject;
 import org.jkiss.dbeaver.model.struct.DBSObjectType;
 import org.jkiss.dbeaver.model.struct.rdb.*;
-import org.jkiss.dbeaver.model.DBIcon;
 
 /**
  * Relational database object type.
@@ -32,6 +32,7 @@ public class RelationalObjectType extends AbstractObjectType {
     public static final DBSObjectType TYPE_TABLE = new RelationalObjectType("Table", "Table", DBIcon.TREE_TABLE, DBSTable.class);
     public static final DBSObjectType TYPE_VIEW = new RelationalObjectType("View", "View", DBIcon.TREE_VIEW, DBSTable.class);
     public static final DBSObjectType TYPE_TABLE_COLUMN = new RelationalObjectType("Table column", "Table column", DBIcon.TREE_COLUMN, DBSTableColumn.class);
+    public static final DBSObjectType TYPE_VIEW_COLUMN = new RelationalObjectType("View column", "View column", DBIcon.TREE_COLUMN, DBSTableColumn.class);
     public static final DBSObjectType TYPE_INDEX = new RelationalObjectType("Index", "Index", DBIcon.TREE_INDEX, DBSTableIndex.class);
     public static final DBSObjectType TYPE_CONSTRAINT = new RelationalObjectType("Constraint", "Table constraint", DBIcon.TREE_CONSTRAINT, DBSTableConstraint.class);
     public static final DBSObjectType TYPE_PROCEDURE = new RelationalObjectType("Procedure", "Procedure or function", DBIcon.TREE_PROCEDURE, DBSProcedure.class);

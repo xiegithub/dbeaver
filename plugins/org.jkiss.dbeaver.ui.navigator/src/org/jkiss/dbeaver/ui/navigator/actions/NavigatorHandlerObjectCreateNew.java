@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,17 +18,15 @@ package org.jkiss.dbeaver.ui.navigator.actions;
 
 import org.eclipse.core.commands.ExecutionEvent;
 import org.eclipse.core.commands.ExecutionException;
-import org.eclipse.core.resources.IFolder;
+import org.eclipse.core.commands.ParameterizedCommand;
+import org.eclipse.core.resources.IContainer;
+import org.eclipse.core.resources.IProject;
 import org.eclipse.core.resources.IResource;
-import org.eclipse.jface.action.ActionContributionItem;
 import org.eclipse.jface.action.IContributionItem;
 import org.eclipse.jface.action.Separator;
 import org.eclipse.jface.viewers.ISelection;
 import org.eclipse.osgi.util.NLS;
-import org.eclipse.ui.IWorkbenchCommandConstants;
-import org.eclipse.ui.IWorkbenchPage;
-import org.eclipse.ui.IWorkbenchPart;
-import org.eclipse.ui.IWorkbenchPartSite;
+import org.eclipse.ui.*;
 import org.eclipse.ui.actions.CompoundContributionItem;
 import org.eclipse.ui.commands.IElementUpdater;
 import org.eclipse.ui.handlers.HandlerUtil;
@@ -37,13 +35,10 @@ import org.eclipse.ui.menus.CommandContributionItemParameter;
 import org.eclipse.ui.menus.UIElement;
 import org.jkiss.code.Nullable;
 import org.jkiss.dbeaver.Log;
-import org.jkiss.dbeaver.model.DBIcon;
-import org.jkiss.dbeaver.model.DBPDataSource;
-import org.jkiss.dbeaver.model.DBPDataSourceContainer;
-import org.jkiss.dbeaver.model.DBPImage;
-import org.jkiss.dbeaver.model.app.DBPProjectManager;
+import org.jkiss.dbeaver.model.*;
 import org.jkiss.dbeaver.model.app.DBPResourceCreator;
 import org.jkiss.dbeaver.model.app.DBPResourceHandler;
+import org.jkiss.dbeaver.model.app.DBPWorkspace;
 import org.jkiss.dbeaver.model.edit.DBEObjectMaker;
 import org.jkiss.dbeaver.model.messages.ModelMessages;
 import org.jkiss.dbeaver.model.navigator.*;
@@ -52,7 +47,10 @@ import org.jkiss.dbeaver.model.navigator.meta.DBXTreeItem;
 import org.jkiss.dbeaver.model.navigator.meta.DBXTreeNode;
 import org.jkiss.dbeaver.model.struct.DBSObject;
 import org.jkiss.dbeaver.runtime.DBWorkbench;
-import org.jkiss.dbeaver.ui.*;
+import org.jkiss.dbeaver.ui.ActionUtils;
+import org.jkiss.dbeaver.ui.DBeaverIcons;
+import org.jkiss.dbeaver.ui.UIIcon;
+import org.jkiss.dbeaver.ui.UIUtils;
 import org.jkiss.dbeaver.ui.internal.UINavigatorMessages;
 import org.jkiss.dbeaver.ui.navigator.NavigatorCommands;
 import org.jkiss.dbeaver.ui.navigator.NavigatorUtils;
@@ -72,6 +70,7 @@ import java.util.Map;
 public class NavigatorHandlerObjectCreateNew extends NavigatorHandlerObjectCreateBase implements IElementUpdater {
 
     private static final Log log = Log.getLog(NavigatorHandlerObjectCreateNew.class);
+    public static final Separator DUMMY_CONTRIBUTION_ITEM = new Separator();
 
     @Override
     public Object execute(ExecutionEvent event) throws ExecutionException {
@@ -92,6 +91,21 @@ public class NavigatorHandlerObjectCreateNew extends NavigatorHandlerObjectCreat
                         log.error("Error detecting new object type " + objectType, e);
                     }
                 }
+            } else {
+                // No explicit object type. Try to detect from selection
+                IWorkbenchPart activePart = HandlerUtil.getActivePart(event);
+                if (activePart != null) {
+                    List<IContributionItem> actions = fillCreateMenuItems(activePart.getSite(), node);
+                    for (IContributionItem item : actions) {
+                        if (item instanceof CommandContributionItem) {
+                            ParameterizedCommand command = ((CommandContributionItem) item).getCommand();
+                            if (command != null) {
+                                ActionUtils.runCommand(command.getId(), selection, command.getParameterMap(), activePart.getSite());
+                                return null;
+                            }
+                        }
+                    }
+                }
             }
             createNewObject(HandlerUtil.getActiveWorkbenchWindow(event), node, newObjectType, null, isFolder);
         }
@@ -104,8 +118,37 @@ public class NavigatorHandlerObjectCreateNew extends NavigatorHandlerObjectCreat
         if (!updateUI) {
             return;
         }
+        IWorkbenchWindow workbenchWindow = element.getServiceLocator().getService(IWorkbenchWindow.class);
+        if (workbenchWindow == null || workbenchWindow.getActivePage() == null) {
+            return;
+        }
+
         Object typeName = parameters.get(NavigatorCommands.PARAM_OBJECT_TYPE_NAME);
         Object objectIcon = parameters.get(NavigatorCommands.PARAM_OBJECT_TYPE_ICON);
+        if (typeName == null) {
+            // Try to get type from active selection
+            DBNNode node = NavigatorUtils.getSelectedNode(element);
+            if (node != null && !node.isDisposed()) {
+                List<IContributionItem> actions = fillCreateMenuItems(workbenchWindow.getActivePage().getActivePart().getSite(), node);
+                for (IContributionItem item : actions) {
+                    if (item instanceof CommandContributionItem) {
+                        ParameterizedCommand command = ((CommandContributionItem) item).getCommand();
+                        if (command != null) {
+                            typeName = command.getParameterMap().get(NavigatorCommands.PARAM_OBJECT_TYPE_NAME);
+                            if (typeName != null) {
+                                // Prepend "Create new" as it is a single node
+                                typeName = NLS.bind(UINavigatorMessages.actions_navigator_create_new, typeName);
+                                // Do not use object icon ()
+//                                if (!(node instanceof DBNDatabaseFolder)) {
+//                                    objectIcon = command.getParameterMap().get(NavigatorCommands.PARAM_OBJECT_TYPE_ICON);
+//                                }
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+        }
         if (typeName != null) {
             element.setText(typeName.toString());
         } else {
@@ -171,19 +214,19 @@ public class NavigatorHandlerObjectCreateNew extends NavigatorHandlerObjectCreat
         if (node instanceof DBNLocalFolder || node instanceof DBNProjectDatabases || node instanceof DBNDataSource) {
             createActions.add(makeCommandContributionItem(site, NavigatorCommands.CMD_CREATE_LOCAL_FOLDER));
         } else if (node instanceof DBNResource) {
-            final DBPProjectManager projectRegistry = DBWorkbench.getPlatform().getProjectManager();
+            final DBPWorkspace workspace = DBWorkbench.getPlatform().getWorkspace();
             IResource resource = ((DBNResource) node).getResource();
-            DBPResourceHandler handler = projectRegistry.getResourceHandler(resource);
+            if (resource instanceof IProject) {
+                createActions.add(makeCommandContributionItem(site, NavigatorCommands.CMD_CREATE_PROJECT));
+            }
+            DBPResourceHandler handler = workspace.getResourceHandler(resource);
             if (handler instanceof DBPResourceCreator && (handler.getFeatures(resource) & DBPResourceCreator.FEATURE_CREATE_FILE) != 0) {
                 createActions.add(makeCommandContributionItem(site, NavigatorCommands.CMD_CREATE_RESOURCE_FILE));
             }
             if (handler != null && (handler.getFeatures(resource) & DBPResourceHandler.FEATURE_CREATE_FOLDER) != 0) {
                 createActions.add(makeCommandContributionItem(site, NavigatorCommands.CMD_CREATE_RESOURCE_FOLDER));
             }
-            if (resource instanceof IFolder) {
-                if (site != null) {
-                    createActions.add(new Separator());
-                }
+            if (resource instanceof IContainer) {
                 createActions.add(makeCommandContributionItem(site, NavigatorCommands.CMD_CREATE_FILE_LINK));
                 createActions.add(makeCommandContributionItem(site, NavigatorCommands.CMD_CREATE_FOLDER_LINK));
             }
@@ -202,9 +245,14 @@ public class NavigatorHandlerObjectCreateNew extends NavigatorHandlerObjectCreat
         if (node instanceof DBNDatabaseFolder) {
             final List<DBXTreeNode> metaChildren = ((DBNDatabaseFolder) node).getMeta().getChildren(node);
             if (!CommonUtils.isEmpty(metaChildren)) {
-                Class<?> nodeClass = ((DBNContainer) node).getChildrenClass();
-                String nodeType = metaChildren.get(0).getChildrenType(node.getDataSource(), null);
-                DBPImage nodeIcon = metaChildren.get(0).getIcon(node);
+                Class<?> nodeClass;
+                if (metaChildren.size() == 1 && metaChildren.get(0) instanceof DBXTreeItem) {
+                    nodeClass = node.getChildrenClass((DBXTreeItem)metaChildren.get(0));
+                } else {
+                    nodeClass = ((DBNContainer) node).getChildrenClass();
+                }
+                String nodeType = metaChildren.get(0).getChildrenTypeLabel(node.getDataSource(), null);
+                DBPImage nodeIcon = node.getNodeIconDefault();//metaChildren.get(0).getIcon(node);
                 if (nodeClass != null && nodeType != null) {
                     if (isCreateSupported(node, nodeClass)) {
                         IContributionItem item = makeCreateContributionItem(
@@ -214,21 +262,27 @@ public class NavigatorHandlerObjectCreateNew extends NavigatorHandlerObjectCreat
                 }
             }
         } else {
-            Class<?> nodeItemClass = node.getObject().getClass();
-            DBPImage nodeIcon = node.getNodeIconDefault();
-            if (node instanceof DBNDataSource) {
-                nodeIcon = UIIcon.SQL_NEW_CONNECTION;
+            if (node.getObject() == null) {
+                return;
             }
+            Class<?> nodeItemClass = node.getObject().getClass();
+            DBNNode parentNode = node.getParentNode();
             if (isCreateSupported(
-                node.getParentNode() instanceof DBNDatabaseNode ? (DBNDatabaseNode) node.getParentNode() : null,
+                parentNode instanceof DBNDatabaseNode ? (DBNDatabaseNode) parentNode : null,
                 nodeItemClass))
             {
-                createActions.add(
-                    makeCreateContributionItem(
-                        site, nodeItemClass.getName(), node.getNodeType(), nodeIcon, false));
+                if (site == null) {
+                    createActions.add(DUMMY_CONTRIBUTION_ITEM);
+                } else {
+                    DBPImage nodeIcon = node instanceof DBNDataSource ?
+                        UIIcon.SQL_NEW_CONNECTION : node.getNodeIconDefault();
+                    createActions.add(
+                        makeCreateContributionItem(
+                            site, nodeItemClass.getName(), node.getNodeType(), nodeIcon, false));
+                }
             }
 
-            if (isReadOnly(node.getObject())) {
+            if (!node.getDataSourceContainer().hasModifyPermission(DBPDataSourcePermission.PERMISSION_EDIT_METADATA)) {
                 // Do not add child folders
                 return;
             }
@@ -265,10 +319,10 @@ public class NavigatorHandlerObjectCreateNew extends NavigatorHandlerObjectCreat
                 return false;
             }
 
-            String typeName = childMeta.getNodeType(node.getDataSource(), null);
+            String typeName = childMeta.getNodeTypeLabel(node.getDataSource(), null);
             if (typeName != null) {
                 IContributionItem item = makeCreateContributionItem(
-                    site, objectClass.getName(), typeName, childMeta.getIcon(node), true);
+                    site, objectClass.getName(), typeName, childMeta.getIcon(null), true);
                 createActions.add(item);
                 return true;
             }
@@ -284,7 +338,8 @@ public class NavigatorHandlerObjectCreateNew extends NavigatorHandlerObjectCreat
     private static IContributionItem makeCommandContributionItem(@Nullable IWorkbenchPartSite site, String commandId)
     {
         if (site == null) {
-            return new ActionContributionItem(new EmptyAction(commandId));
+            // Dummy item. We need only count
+            return DUMMY_CONTRIBUTION_ITEM;
         } else {
             return ActionUtils.makeCommandContribution(site, commandId);
         }
@@ -294,7 +349,7 @@ public class NavigatorHandlerObjectCreateNew extends NavigatorHandlerObjectCreat
         @Nullable IWorkbenchPartSite site, String objectType, String objectTypeName, DBPImage objectIcon, boolean isFolder)
     {
         if (site == null) {
-            return new ActionContributionItem(new EmptyAction(objectType));
+            return DUMMY_CONTRIBUTION_ITEM;
         }
         CommandContributionItemParameter params = new CommandContributionItemParameter(
             site,
@@ -324,90 +379,6 @@ public class NavigatorHandlerObjectCreateNew extends NavigatorHandlerObjectCreat
         DBPDataSource dataSource = object.getDataSource();
         return dataSource == null || dataSource.getContainer().isConnectionReadOnly();
     }
-
-/*
-    /////////////////////////////////////////////////////////////////
-    // BAD CODE.
-    // It is optimization
-
-    private static int countCreateMenuItems(DBNNode node) {
-        int count = 0;
-
-        if (node instanceof DBNLocalFolder || node instanceof DBNProjectDatabases) {
-            // Create connection
-            count++;
-        }
-        if (node instanceof DBNDatabaseNode) {
-            count += countDatabaseNodeCreateItems((DBNDatabaseNode) node);
-        }
-
-        if (node instanceof DBNLocalFolder || node instanceof DBNProjectDatabases || node instanceof DBNDataSource) {
-            // Create local folder
-            count++;
-        } else if (node instanceof DBNResource) {
-            final DBPProjectManager projectRegistry = DBWorkbench.getPlatform().getProjectManager();
-            IResource resource = ((DBNResource) node).getResource();
-            DBPResourceHandler handler = projectRegistry.getResourceHandler(resource);
-            if (handler instanceof DBPResourceCreator && (handler.getFeatures(resource) & DBPResourceCreator.FEATURE_CREATE_FILE) != 0) {
-                // Create file
-                count++;
-            }
-            if (handler != null && (handler.getFeatures(resource) & DBPResourceHandler.FEATURE_CREATE_FOLDER) != 0) {
-                // Create folder
-                count++;
-            }
-            if (resource instanceof IFolder) {
-                // Create file and folder links
-                count++;
-                count++;
-            }
-        }
-        return count;
-    }
-
-    private static int countDatabaseNodeCreateItems(DBNDatabaseNode node) {
-        int count = 0;
-        if (node instanceof DBNDatabaseFolder) {
-            final List<DBXTreeNode> metaChildren = ((DBNDatabaseFolder) node).getMeta().getChildren(node);
-            if (!CommonUtils.isEmpty(metaChildren)) {
-                Class<?> nodeClass = ((DBNContainer) node).getChildrenClass();
-                String nodeType = metaChildren.get(0).getChildrenType(node.getDataSource(), null);
-                DBPImage nodeIcon = metaChildren.get(0).getIcon(node);
-                if (nodeClass != null && nodeType != null) {
-                    if (isCreateSupported(node, nodeClass)) {
-                        count++;
-                    }
-                }
-            }
-        } else {
-            Class<?> nodeItemClass = node.getObject().getClass();
-            if (isCreateSupported(
-                node.getParentNode() instanceof DBNDatabaseNode ? (DBNDatabaseNode) node.getParentNode() : null,
-                nodeItemClass))
-            {
-                count++;
-            }
-
-            if (!isReadOnly(node.getObject())) {
-                List<DBXTreeNode> childNodeMetas = node.getMeta().getChildren(node);
-                if (!CommonUtils.isEmpty(childNodeMetas)) {
-                    for (DBXTreeNode childMeta : childNodeMetas) {
-                        if (childMeta instanceof DBXTreeFolder) {
-                            List<DBXTreeNode> folderChildMeta = childMeta.getChildren(node);
-                            if (!CommonUtils.isEmpty(folderChildMeta) && folderChildMeta.size() == 1 && folderChildMeta.get(0) instanceof DBXTreeItem) {
-                                addChildNodeCreateItem(site, createActions, node, (DBXTreeItem) folderChildMeta.get(0));
-                            }
-                        } else if (childMeta instanceof DBXTreeItem) {
-                            addChildNodeCreateItem(site, createActions, node, (DBXTreeItem) childMeta);
-                        }
-                    }
-                }
-            }
-        }
-        return count;
-    }
-
-*/
 
     public static class MenuCreateContributor extends CompoundContributionItem {
 

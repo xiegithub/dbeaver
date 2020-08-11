@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,7 +27,7 @@ import org.jkiss.dbeaver.model.impl.AbstractDescriptor;
 import org.jkiss.dbeaver.model.impl.PropertyDescriptor;
 import org.jkiss.dbeaver.model.preferences.DBPPropertyDescriptor;
 import org.jkiss.dbeaver.tools.transfer.IDataTransferProcessor;
-import org.jkiss.dbeaver.ui.ProgramInfo;
+import org.jkiss.dbeaver.utils.MimeTypes;
 import org.jkiss.utils.ArrayUtils;
 import org.jkiss.utils.CommonUtils;
 
@@ -44,16 +44,15 @@ public class DataTransferProcessorDescriptor extends AbstractDescriptor implemen
     private final List<ObjectType> sourceTypes = new ArrayList<>();
     private final String name;
     private final String description;
+    private final String contentType;
     private final String appFileExtension;
     private final String appName;
     private final int order;
     @NotNull
     private final DBPImage icon;
-    private final List<DBPPropertyDescriptor> properties = new ArrayList<>();
+    private final DBPPropertyDescriptor[] properties;
     private boolean isBinary;
     private boolean isHTML;
-
-    private transient ProgramInfo program;
 
     DataTransferProcessorDescriptor(DataTransferNodeDescriptor node, IConfigurationElement config) {
         super(config);
@@ -65,6 +64,7 @@ public class DataTransferProcessorDescriptor extends AbstractDescriptor implemen
         this.icon = iconToImage(config.getAttribute("icon"), DBIcon.TYPE_UNKNOWN);
         this.isBinary = CommonUtils.getBoolean(config.getAttribute("binary"), false);
         this.isHTML = CommonUtils.getBoolean(config.getAttribute("html"), false);
+        this.contentType = CommonUtils.toString(config.getAttribute("contentType"), MimeTypes.OCTET_STREAM);
         this.appFileExtension = config.getAttribute("appFileExtension");
         this.appName = config.getAttribute("appName");
         this.order = CommonUtils.toInt(config.getAttribute("order"));
@@ -73,9 +73,7 @@ public class DataTransferProcessorDescriptor extends AbstractDescriptor implemen
             sourceTypes.add(new ObjectType(typeCfg.getAttribute("type")));
         }
 
-        for (IConfigurationElement prop : ArrayUtils.safeArray(config.getChildren(PropertyDescriptor.TAG_PROPERTY_GROUP))) {
-            properties.addAll(PropertyDescriptor.extractProperties(prop));
-        }
+        this.properties = PropertyDescriptor.extractPropertyGroups(config);
     }
 
     public String getId() {
@@ -90,21 +88,16 @@ public class DataTransferProcessorDescriptor extends AbstractDescriptor implemen
         return description;
     }
 
+    public String getContentType() {
+        return contentType;
+    }
+
     public String getAppFileExtension() {
         return appFileExtension;
     }
 
     public String getAppName() {
         return appName;
-    }
-
-    public ProgramInfo getOpenWithApplication() {
-        if (program == null) {
-            if (!CommonUtils.isEmpty(appFileExtension)) {
-                program = ProgramInfo.getProgram(appFileExtension);
-            }
-        }
-        return program;
     }
 
     public int getOrder() {
@@ -116,7 +109,7 @@ public class DataTransferProcessorDescriptor extends AbstractDescriptor implemen
         return icon;
     }
 
-    public List<DBPPropertyDescriptor> getProperties() {
+    public DBPPropertyDescriptor[] getProperties() {
         return properties;
     }
 

@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,6 +16,7 @@
  */
 package org.jkiss.dbeaver.ext.mssql.model;
 
+import org.jkiss.code.NotNull;
 import org.jkiss.dbeaver.ext.mssql.SQLServerConstants;
 import org.jkiss.dbeaver.ext.mssql.SQLServerUtils;
 import org.jkiss.dbeaver.model.DBPDataKind;
@@ -26,9 +27,11 @@ import org.jkiss.dbeaver.model.impl.jdbc.JDBCSQLDialect;
 import org.jkiss.dbeaver.model.struct.DBSTypedObject;
 import org.jkiss.dbeaver.model.struct.rdb.DBSProcedure;
 import org.jkiss.dbeaver.model.struct.rdb.DBSProcedureParameter;
+import org.jkiss.utils.ArrayUtils;
 import org.jkiss.utils.CommonUtils;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 
@@ -40,14 +43,31 @@ public class SQLServerDialect extends JDBCSQLDialect {
         }*/
     };
 
-    public static final String[][] SQLSERVER_QUOTE_STRINGS = {
+    private static String[] SQLSERVER_EXTRA_KEYWORDS = new String[]{
+        "TOP",
+        "SYNONYM",
+    };
+
+    private static final String[][] SQLSERVER_QUOTE_STRINGS = {
             {"[", "]"},
             {"\"", "\""},
     };
+    private static final String[][] SYBASE_LEGACY_QUOTE_STRINGS = {
+        {"\"", "\""},
+    };
+
 
     private static String[] EXEC_KEYWORDS =  { "CALL", "EXEC" };
 
+    private static String[] PLAIN_TYPE_NAMES = {
+        SQLServerConstants.TYPE_GEOGRAPHY,
+        SQLServerConstants.TYPE_GEOMETRY,
+        SQLServerConstants.TYPE_TIMESTAMP,
+        SQLServerConstants.TYPE_IMAGE,
+    };
+
     private JDBCDataSource dataSource;
+    private boolean isSqlServer;
 
     public SQLServerDialect() {
         super("SQLServer");
@@ -55,10 +75,12 @@ public class SQLServerDialect extends JDBCSQLDialect {
 
     public void initDriverSettings(JDBCDataSource dataSource, JDBCDatabaseMetaData metaData) {
         super.initDriverSettings(dataSource, metaData);
-        addSQLKeyword("TOP");
+        super.addSQLKeywords(Arrays.asList(SQLSERVER_EXTRA_KEYWORDS));
         this.dataSource = dataSource;
+        this.isSqlServer = SQLServerUtils.isDriverSqlServer(dataSource.getContainer().getDriver());
     }
 
+    @NotNull
     @Override
     public String getScriptDelimiter() {
         return "GO";
@@ -71,11 +93,13 @@ public class SQLServerDialect extends JDBCSQLDialect {
 
     }
 
+    @NotNull
     @Override
     public String[] getExecuteKeywords() {
         return EXEC_KEYWORDS;
     }
 
+    @NotNull
     @Override
     public String[] getParametersPrefixes() {
         return super.getParametersPrefixes();
@@ -85,7 +109,7 @@ public class SQLServerDialect extends JDBCSQLDialect {
 
     @Override
     public boolean isDelimiterAfterQuery() {
-        return SQLServerUtils.isDriverSqlServer(dataSource.getContainer().getDriver());
+        return isSqlServer;
     }
 
     @Override
@@ -93,7 +117,16 @@ public class SQLServerDialect extends JDBCSQLDialect {
         return true;
     }
 
+    @Override
+    public boolean supportsAliasInSelect() {
+        return true;
+    }
+
     public String[][] getIdentifierQuoteStrings() {
+        if (dataSource == null || (!isSqlServer && !dataSource.isServerVersionAtLeast(12, 6))) {
+            // Old Sybase doesn't support square brackets - #7755
+            return SYBASE_LEGACY_QUOTE_STRINGS;
+        }
         return SQLSERVER_QUOTE_STRINGS;
     }
 
@@ -102,9 +135,10 @@ public class SQLServerDialect extends JDBCSQLDialect {
         return TSQL_BEGIN_END_BLOCK;
     }
 
+    @NotNull
     @Override
     public MultiValueInsertMode getMultiValueInsertMode() {
-        if (SQLServerUtils.isDriverSqlServer(dataSource.getContainer().getDriver())) {
+        if (isSqlServer) {
             if (dataSource.isServerVersionAtLeast(SQLServerConstants.SQL_SERVER_2008_VERSION_MAJOR, 0)) {
                 return MultiValueInsertMode.GROUP_ROWS;
             }
@@ -115,7 +149,7 @@ public class SQLServerDialect extends JDBCSQLDialect {
     }
 
     @Override
-    public String getColumnTypeModifiers(DBPDataSource dataSource, DBSTypedObject column, String typeName, DBPDataKind dataKind) {
+    public String getColumnTypeModifiers(DBPDataSource dataSource, @NotNull DBSTypedObject column, @NotNull String typeName, @NotNull DBPDataKind dataKind) {
         if (dataKind == DBPDataKind.DATETIME) {
             if (SQLServerConstants.TYPE_DATETIME2.equalsIgnoreCase(typeName)) {
                 Integer scale = column.getScale();
@@ -125,12 +159,10 @@ public class SQLServerDialect extends JDBCSQLDialect {
             }
         } else if (dataKind == DBPDataKind.STRING) {
             switch (typeName) {
-                case "char":
-                case "nchar":
-                case "varchar":
-                case "nvarchar":
-                case "text":
-                case "ntext": {
+                case SQLServerConstants.TYPE_CHAR:
+                case SQLServerConstants.TYPE_NCHAR:
+                case SQLServerConstants.TYPE_VARCHAR:
+                case SQLServerConstants.TYPE_NVARCHAR: {
                     long maxLength = column.getMaxLength();
                     if (maxLength == 0) {
                         return null;
@@ -140,10 +172,16 @@ public class SQLServerDialect extends JDBCSQLDialect {
                         return "(" + maxLength + ")";
                     }
                 }
+                case SQLServerConstants.TYPE_TEXT:
+                case SQLServerConstants.TYPE_NTEXT:
+                    // text and ntext don't have max length
                 default:
                     return null;
             }
+        } else if (ArrayUtils.contains(PLAIN_TYPE_NAMES , typeName)) {
+            return null;
         }
+
         return super.getColumnTypeModifiers(dataSource, column, typeName, dataKind);
     }
 

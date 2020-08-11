@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,7 +16,7 @@
  */
 package org.jkiss.dbeaver.ui.dashboard.control;
 
-import org.apache.commons.jexl2.Expression;
+import org.apache.commons.jexl3.JexlExpression;
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.events.*;
 import org.eclipse.swt.graphics.Color;
@@ -334,7 +334,7 @@ public class DashboardItem extends Composite implements DashboardContainer {
     }
 
     @Override
-    public Expression getMapFormula() {
+    public JexlExpression getMapFormula() {
         return dashboardConfig.getDashboardDescriptor().getMapFormulaExpr();
     }
 

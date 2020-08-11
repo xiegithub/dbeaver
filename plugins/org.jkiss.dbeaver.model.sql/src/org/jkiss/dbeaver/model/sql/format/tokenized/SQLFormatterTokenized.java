@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -299,8 +299,6 @@ public class SQLFormatterTokenized implements SQLFormatter {
         return null;
     }
 
-
-
     private static  boolean isEmbeddedToken(FormatterToken token) {
         switch (token.getString()) {
             case ":":
@@ -312,6 +310,7 @@ public class SQLFormatterTokenized implements SQLFormatter {
             case "#":
             case "-":
             case "'":
+            case "%":
             case "\"":
             case "`":
                 return true;
@@ -319,9 +318,5 @@ public class SQLFormatterTokenized implements SQLFormatter {
                 return false;
         }
     }
-
-
-
-
 
 }

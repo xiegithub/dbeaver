@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,6 +20,9 @@ import org.eclipse.e4.ui.model.application.ui.MElementContainer;
 import org.eclipse.e4.ui.model.application.ui.MUIElement;
 import org.eclipse.e4.ui.model.application.ui.basic.MTrimBar;
 import org.eclipse.e4.ui.model.application.ui.basic.MTrimElement;
+import org.eclipse.swt.graphics.Color;
+import org.eclipse.swt.widgets.Composite;
+import org.eclipse.swt.widgets.Control;
 import org.eclipse.ui.IEditorPart;
 import org.eclipse.ui.IWorkbenchWindow;
 import org.eclipse.ui.PlatformUI;
@@ -27,9 +30,12 @@ import org.eclipse.ui.commands.ICommandService;
 import org.eclipse.ui.internal.WorkbenchWindow;
 import org.jkiss.dbeaver.model.DBPDataSourceContainer;
 import org.jkiss.dbeaver.model.IDataSourceContainerProvider;
+import org.jkiss.dbeaver.ui.UIUtils;
 
 public class DataSourceToolbarUtils
 {
+
+    public static final String CONNECTION_SELECTOR_TOOLBAR_ID = "dbeaver-connection-selector";
 
     public static DBPDataSourceContainer getCurrentDataSource(IWorkbenchWindow workbenchWindow) {
         if (workbenchWindow == null || workbenchWindow.getActivePage() == null) {
@@ -50,15 +56,48 @@ public class DataSourceToolbarUtils
         if (window instanceof WorkbenchWindow) {
             MTrimBar topTrim = ((WorkbenchWindow) window).getTopTrim();
             for (MTrimElement element : topTrim.getChildren()) {
-                if ("dbeaver-connection-selector".equals(element.getElementId())) {
+                if (CONNECTION_SELECTOR_TOOLBAR_ID.equals(element.getElementId())) {
+                    boolean showConnectionSelector = false;
+                    IEditorPart activeEditor = window.getActivePage().getActiveEditor();
+                    DBPDataSourceContainer dataSourceContainer = null;
+                    if (activeEditor instanceof IDataSourceContainerProvider) {
+                        showConnectionSelector = true;
+                        dataSourceContainer = ((IDataSourceContainerProvider) activeEditor).getDataSourceContainer();
+                    }
+
                     if (element instanceof MElementContainer) {
+                        Object widget = element.getWidget();
+                        if (widget instanceof Composite) {
+                            Composite controlsPanel = (Composite) widget;
+                            Color bgColor = dataSourceContainer == null ?
+                                null :
+                                UIUtils.getConnectionTypeColor(dataSourceContainer.getConnectionConfiguration().getConnectionType());
+                            Control[] childControl = controlsPanel.getChildren();
+                            for (Control cc : childControl) {
+//                                if (bgColor != null) {
+//                                    Color oldBackground = cc.getBackground();
+//                                    if (oldBackground != null) {
+//                                        RGB newBackground = UIUtils.blend(oldBackground.getRGB(), bgColor.getRGB(), 50);
+//                                        cc.setBackground(UIUtils.getSharedColor(newBackground));
+//                                        continue;
+//                                    }
+//                                }
+                                cc.setBackground(bgColor);
+                            }
+                        }
+
                         MElementContainer<? extends MUIElement> container = (MElementContainer<? extends MUIElement>)element;
                         for (MUIElement tbItem : container.getChildren()) {
-                            tbItem.setVisible(false);
+                            // Handle Eclipse bug. By default it doesn't update contents of main toolbar elements
+                            // So we need to hide/shot it to force text update
+                            if (showConnectionSelector) {
+                                tbItem.setVisible(false);
+                            }
+                            tbItem.setVisible(showConnectionSelector);
                         }
-                        for (MUIElement tbItem : container.getChildren()) {
-                            tbItem.setVisible(true);
-                        }
+//                        for (MUIElement tbItem : container.getChildren()) {
+//                            tbItem.setVisible(true);
+//                        }
                     }
                     return;
                 }

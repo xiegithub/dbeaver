@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,6 +19,7 @@ package org.jkiss.dbeaver.model.impl.sql.edit;
 import org.jkiss.dbeaver.DBException;
 import org.jkiss.dbeaver.model.DBPObject;
 import org.jkiss.dbeaver.model.edit.*;
+import org.jkiss.dbeaver.model.exec.DBCExecutionContext;
 import org.jkiss.dbeaver.model.messages.ModelMessages;
 import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
 import org.jkiss.dbeaver.model.struct.DBSObject;
@@ -34,12 +35,12 @@ public abstract class SQLStructEditor<OBJECT_TYPE extends DBSObject, CONTAINER_T
     implements DBEStructEditor<OBJECT_TYPE>
 {
 
-    protected abstract void addStructObjectCreateActions(DBRProgressMonitor monitor, List<DBEPersistAction> actions, StructCreateCommand command, Map<String, Object> options) throws DBException;
+    protected abstract void addStructObjectCreateActions(DBRProgressMonitor monitor, DBCExecutionContext executionContext, List<DBEPersistAction> actions, StructCreateCommand command, Map<String, Object> options) throws DBException;
 
     @Override
-    public StructCreateCommand makeCreateCommand(OBJECT_TYPE object)
+    public StructCreateCommand makeCreateCommand(OBJECT_TYPE object, Map<String, Object> options)
     {
-        return new StructCreateCommand(object, ModelMessages.model_jdbc_create_new_object);
+        return new StructCreateCommand(object, ModelMessages.model_jdbc_create_new_object, options);
     }
 
     protected Collection<NestedObjectCommand> getNestedOrderedCommands(final StructCreateCommand structCommand)
@@ -79,7 +80,7 @@ public abstract class SQLStructEditor<OBJECT_TYPE extends DBSObject, CONTAINER_T
                 SQLObjectEditor<DBSObject, ?> nestedEditor = getObjectEditor(editorsRegistry, childType);
                 if (nestedEditor != null) {
                     for (DBSObject child : children) {
-                        ObjectCreateCommand childCreateCommand = (ObjectCreateCommand) nestedEditor.makeCreateCommand(child);
+                        ObjectCreateCommand childCreateCommand = (ObjectCreateCommand) nestedEditor.makeCreateCommand(child, createCommand.getOptions());
                         //((StructCreateCommand)createCommand).aggregateCommand(childCreateCommand);
                         commandContext.addCommand(childCreateCommand, null, false);
                     }
@@ -107,14 +108,14 @@ public abstract class SQLStructEditor<OBJECT_TYPE extends DBSObject, CONTAINER_T
         return null;
     }
 
-    protected class StructCreateCommand extends ObjectCreateCommand
+    public class StructCreateCommand extends ObjectCreateCommand
         implements DBECommandAggregator<OBJECT_TYPE> {
 
         private final Map<DBPObject, NestedObjectCommand> objectCommands = new LinkedHashMap<>();
 
-        public StructCreateCommand(OBJECT_TYPE object, String table)
+        public StructCreateCommand(OBJECT_TYPE object, String table, Map<String, Object> options)
         {
-            super(object, table);
+            super(object, table, options);
             objectCommands.put(getObject(), this);
         }
 
@@ -142,10 +143,10 @@ public abstract class SQLStructEditor<OBJECT_TYPE extends DBSObject, CONTAINER_T
         }
 
         @Override
-        public DBEPersistAction[] getPersistActions(DBRProgressMonitor monitor, Map<String, Object> options) throws DBException {
+        public DBEPersistAction[] getPersistActions(DBRProgressMonitor monitor, DBCExecutionContext executionContext, Map<String, Object> options) throws DBException {
             List<DBEPersistAction> actions = new ArrayList<>();
-            addStructObjectCreateActions(monitor, actions, this, options);
-            addObjectExtraActions(monitor, actions, this, options);
+            addStructObjectCreateActions(monitor, executionContext, actions, this, options);
+            addObjectExtraActions(monitor, executionContext, actions, this, options);
             return actions.toArray(new DBEPersistAction[actions.size()]);
         }
     }

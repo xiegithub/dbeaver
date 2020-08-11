@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,16 +24,17 @@ import org.jkiss.dbeaver.ext.postgresql.model.*;
 import org.jkiss.dbeaver.model.DBPEvaluationContext;
 import org.jkiss.dbeaver.model.DBPRefreshableObject;
 import org.jkiss.dbeaver.model.DBUtils;
-import org.jkiss.dbeaver.model.impl.DBSObjectCache;
+import org.jkiss.dbeaver.model.exec.jdbc.JDBCSession;
 import org.jkiss.dbeaver.model.impl.jdbc.JDBCUtils;
 import org.jkiss.dbeaver.model.meta.Association;
 import org.jkiss.dbeaver.model.meta.Property;
 import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
-import org.jkiss.dbeaver.model.struct.DBSEntity;
 import org.jkiss.dbeaver.model.struct.DBSEntityAssociation;
 import org.jkiss.dbeaver.model.struct.DBSObject;
+import org.jkiss.dbeaver.model.struct.cache.DBSObjectCache;
 
 import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
@@ -76,18 +77,15 @@ public class RedshiftExternalTable extends PostgreTable implements DBPRefreshabl
     }
 
     // Copy constructor
-    public RedshiftExternalTable(RedshiftExternalSchema container, DBSEntity source, boolean persisted) {
-        super(container, source, persisted);
-        if (source instanceof RedshiftExternalTable) {
-            RedshiftExternalTable rsSource = (RedshiftExternalTable)source;
-            this.location = rsSource.location;
-            this.inputFormat = rsSource.inputFormat;
-            this.outputFormat = rsSource.outputFormat;
-            this.serializationLib = rsSource.serializationLib;
-            this.serdeParameters = rsSource.serdeParameters;
-            this.compressed = rsSource.compressed;
-            this.parameters = rsSource.parameters;
-        }
+    public RedshiftExternalTable(DBRProgressMonitor monitor, RedshiftExternalSchema container, RedshiftExternalTable source, boolean persisted) throws DBException {
+        super(monitor, container, source, persisted);
+        this.location = source.location;
+        this.inputFormat = source.inputFormat;
+        this.outputFormat = source.outputFormat;
+        this.serializationLib = source.serializationLib;
+        this.serdeParameters = source.serdeParameters;
+        this.compressed = source.compressed;
+        this.parameters = source.parameters;
     }
 
     @Override
@@ -178,7 +176,7 @@ public class RedshiftExternalTable extends PostgreTable implements DBPRefreshabl
      * @param monitor progress monitor
      */
     @Override
-    public Collection<RedshiftExternalTableColumn> getAttributes(@NotNull DBRProgressMonitor monitor)
+    public List<RedshiftExternalTableColumn> getAttributes(@NotNull DBRProgressMonitor monitor)
         throws DBException
     {
         return getContainer().externalTableCache.getChildren(monitor, getContainer(), this);
@@ -251,5 +249,10 @@ public class RedshiftExternalTable extends PostgreTable implements DBPRefreshabl
     @Override
     public String getObjectDefinitionText(DBRProgressMonitor monitor, Map<String, Object> options) throws DBException {
         return null;
+    }
+
+    @Override
+    protected void readTableStatistics(JDBCSession session) throws SQLException {
+        // Not supported
     }
 }

@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -30,6 +30,7 @@ import org.jkiss.dbeaver.ext.erd.model.DiagramLoader;
 import org.jkiss.dbeaver.ext.erd.model.ERDDecoratorDefault;
 import org.jkiss.dbeaver.ext.erd.model.EntityDiagram;
 import org.jkiss.dbeaver.model.DBPDataSourceContainer;
+import org.jkiss.dbeaver.model.app.DBPProject;
 import org.jkiss.dbeaver.model.navigator.DBNNode;
 import org.jkiss.dbeaver.model.navigator.DBNResource;
 import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
@@ -42,9 +43,9 @@ import org.jkiss.dbeaver.utils.RuntimeUtils;
 import org.jkiss.utils.CommonUtils;
 
 import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.lang.reflect.InvocationTargetException;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 /**
@@ -56,9 +57,9 @@ public class ERDResourceHandler extends AbstractResourceHandler {
 
     private static final String ERD_EXT = "erd"; //$NON-NLS-1$
 
-    public static IFolder getDiagramsFolder(IProject project, boolean forceCreate) throws CoreException
+    public static IFolder getDiagramsFolder(DBPProject project, boolean forceCreate) throws CoreException
     {
-        return DBWorkbench.getPlatform().getProjectManager().getResourceDefaultRoot(project, ERDResourceHandler.class, forceCreate);
+        return DBWorkbench.getPlatform().getWorkspace().getResourceDefaultRoot(project, ERDResourceHandler.class, forceCreate);
     }
 
     @Override
@@ -129,7 +130,7 @@ public class ERDResourceHandler extends AbstractResourceHandler {
     {
         if (folder == null) {
             try {
-                folder = getDiagramsFolder(DBWorkbench.getPlatform().getProjectManager().getActiveProject(), true);
+                folder = getDiagramsFolder(DBWorkbench.getPlatform().getWorkspace().getActiveProject(), true);
             } catch (CoreException e) {
                 throw new DBException("Can't obtain folder for diagram", e);
             }
@@ -151,9 +152,8 @@ public class ERDResourceHandler extends AbstractResourceHandler {
                     newDiagram.setLayoutManualAllowed(true);
                     newDiagram.setLayoutManualDesired(true);
 
-                    ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-                    DiagramLoader.save(monitor1, null, newDiagram, false, buffer);
-                    InputStream data = new ByteArrayInputStream(buffer.toByteArray());
+                    String diagramState = DiagramLoader.serializeDiagram(monitor1, null, newDiagram, false, false);
+                    InputStream data = new ByteArrayInputStream(diagramState.getBytes(StandardCharsets.UTF_8));
 
                     file.create(data, true, RuntimeUtils.getNestedMonitor(monitor1));
                 } catch (Exception e) {

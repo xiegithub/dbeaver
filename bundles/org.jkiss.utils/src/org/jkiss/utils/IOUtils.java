@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -176,6 +176,18 @@ public final class IOUtils {
         return buffer;
     }
 
+    public static void writeFileFromBuffer(File file, byte[] buffer) throws IOException {
+        try (OutputStream os = new FileOutputStream(file)) {
+            os.write(buffer);
+        }
+    }
+
+    public static void writeFileFromString(File file, String str) throws IOException {
+        try (Writer os = new FileWriter(file)) {
+            os.write(str);
+        }
+    }
+
     public static int readStreamToBuffer(
         java.io.InputStream inputStream,
         byte[] buffer)
@@ -258,4 +270,5 @@ public final class IOUtils {
         }
         return result.toString();
     }
+
 }

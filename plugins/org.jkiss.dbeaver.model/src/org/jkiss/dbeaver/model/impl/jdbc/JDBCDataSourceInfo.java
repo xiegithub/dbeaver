@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,8 +20,10 @@ import org.jkiss.dbeaver.Log;
 import org.jkiss.dbeaver.model.DBPDataSourceContainer;
 import org.jkiss.dbeaver.model.DBPTransactionIsolation;
 import org.jkiss.dbeaver.model.exec.jdbc.JDBCDatabaseMetaData;
-import org.jkiss.dbeaver.model.impl.BaseDataSourceInfo;
+import org.jkiss.dbeaver.model.impl.AbstractDataSourceInfo;
+import org.jkiss.dbeaver.model.impl.struct.RelationalObjectType;
 import org.jkiss.dbeaver.model.messages.ModelMessages;
+import org.jkiss.dbeaver.model.struct.DBSObjectType;
 import org.jkiss.utils.CommonUtils;
 import org.osgi.framework.Version;
 
@@ -32,7 +34,7 @@ import java.util.List;
 /**
  * JDBCDataSourceInfo
  */
-public class JDBCDataSourceInfo extends BaseDataSourceInfo
+public class JDBCDataSourceInfo extends AbstractDataSourceInfo
 {
     private static final Log log = Log.getLog(JDBCDataSourceInfo.class);
 
@@ -148,7 +150,7 @@ public class JDBCDataSourceInfo extends BaseDataSourceInfo
         try {
             supportsBatchUpdates = metaData.supportsBatchUpdates();
         } catch (Throwable e) {
-            log.debug(e);
+            log.debug(e.getMessage());
         }
 
         try {
@@ -159,20 +161,21 @@ public class JDBCDataSourceInfo extends BaseDataSourceInfo
         }
 
         supportedIsolations = new ArrayList<>();
-        try {
-            for (JDBCTransactionIsolation txi : JDBCTransactionIsolation.values()) {
-                if (metaData.supportsTransactionIsolationLevel(txi.getCode())) {
-                    supportedIsolations.add(txi);
+        if (supportsTransactions) {
+            try {
+                for (JDBCTransactionIsolation txi : JDBCTransactionIsolation.values()) {
+                    if (metaData.supportsTransactionIsolationLevel(txi.getCode())) {
+                        supportedIsolations.add(txi);
+                    }
                 }
+            } catch (Throwable e) {
+                log.debug(e.getMessage());
             }
-        } catch (Throwable e) {
-            log.debug(e.getMessage());
-            supportsTransactions = true;
+            if (!supportedIsolations.contains(JDBCTransactionIsolation.NONE)) {
+                supportedIsolations.add(0, JDBCTransactionIsolation.NONE);
+            }
+            addCustomTransactionIsolationLevels(supportedIsolations);
         }
-        if (!supportedIsolations.contains(JDBCTransactionIsolation.NONE)) {
-            supportedIsolations.add(0, JDBCTransactionIsolation.NONE);
-        }
-        addCustomTransactionIsolationLevels(supportedIsolations);
 
         supportsScroll = true;
     }
@@ -323,6 +326,22 @@ public class JDBCDataSourceInfo extends BaseDataSourceInfo
     @Override
     public boolean isMultipleResultsFetchBroken() {
         return false;
+    }
+
+    @Override
+    public DBSObjectType[] getSupportedObjectTypes() {
+        return new DBSObjectType[] {
+            RelationalObjectType.TYPE_TABLE,
+            RelationalObjectType.TYPE_VIEW,
+            RelationalObjectType.TYPE_TABLE_COLUMN,
+            RelationalObjectType.TYPE_VIEW_COLUMN,
+            RelationalObjectType.TYPE_INDEX,
+            RelationalObjectType.TYPE_CONSTRAINT,
+            RelationalObjectType.TYPE_PROCEDURE,
+            RelationalObjectType.TYPE_SEQUENCE,
+            RelationalObjectType.TYPE_TRIGGER,
+            RelationalObjectType.TYPE_DATA_TYPE
+        };
     }
 
     public void setSupportsResultSetScroll(boolean supportsScroll)

@@ -1,8 +1,5 @@
 package org.jkiss.dbeaver.ext.exasol.manager;
 
-import java.util.List;
-import java.util.Map;
-
 import org.jkiss.dbeaver.DBException;
 import org.jkiss.dbeaver.Log;
 import org.jkiss.dbeaver.ext.exasol.model.ExasolTable;
@@ -15,10 +12,13 @@ import org.jkiss.dbeaver.model.edit.DBECommandContext;
 import org.jkiss.dbeaver.model.edit.DBEObjectEditor;
 import org.jkiss.dbeaver.model.edit.DBEObjectMaker;
 import org.jkiss.dbeaver.model.edit.DBEPersistAction;
+import org.jkiss.dbeaver.model.exec.DBCExecutionContext;
 import org.jkiss.dbeaver.model.impl.edit.SQLDatabasePersistAction;
 import org.jkiss.dbeaver.model.impl.sql.edit.SQLObjectEditor;
 import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
-import org.jkiss.dbeaver.model.runtime.VoidProgressMonitor;
+
+import java.util.List;
+import java.util.Map;
 
 public class ExasolTablePartitionColumnManager extends SQLObjectEditor<ExasolTablePartitionColumn, ExasolTable> implements DBEObjectEditor<ExasolTablePartitionColumn>, DBEObjectMaker<ExasolTablePartitionColumn, ExasolTable>  {
 
@@ -27,7 +27,12 @@ public class ExasolTablePartitionColumnManager extends SQLObjectEditor<ExasolTab
 	@Override
 	public ExasolTablePartitionColumnCache getObjectsCache(
 			ExasolTablePartitionColumn object) {
-		return ((ExasolTable) object.getTable()).getPartitionCache();
+		return object.getTable().getPartitionCache();
+	}
+
+	@Override
+	public boolean canCreateObject(Object container) {
+		return false;
 	}
 
 	@Override
@@ -36,12 +41,12 @@ public class ExasolTablePartitionColumnManager extends SQLObjectEditor<ExasolTab
 	}
 	
 	@Override
-	protected void addObjectModifyActions(DBRProgressMonitor monitor, List<DBEPersistAction> actionList,
-			SQLObjectEditor<ExasolTablePartitionColumn, ExasolTable>.ObjectChangeCommand command,
-			Map<String, Object> options) throws DBException {
-		ExasolTable table = (ExasolTable) command.getObject().getTable();
+	protected void addObjectModifyActions(DBRProgressMonitor monitor, DBCExecutionContext executionContext, List<DBEPersistAction> actionList,
+                                          ObjectChangeCommand command,
+                                          Map<String, Object> options) throws DBException {
+		ExasolTable table = command.getObject().getTable();
 		try {
-			actionList.add(new SQLDatabasePersistAction(generateAction(table)));
+			actionList.add(new SQLDatabasePersistAction(generateAction(monitor, table)));
 		} catch (DBException e) {
 			LOG.error("Failed to create Partition Action", e);
 		}
@@ -49,48 +54,48 @@ public class ExasolTablePartitionColumnManager extends SQLObjectEditor<ExasolTab
 
 	@Override
 	protected ExasolTablePartitionColumn createDatabaseObject(DBRProgressMonitor monitor, DBECommandContext context,
-			ExasolTable parent, Object copyFrom) throws DBException {
-		return new ExasolTablePartitionColumn(parent);
+                                                              Object container, Object copyFrom, Map<String, Object> options) throws DBException {
+		return new ExasolTablePartitionColumn((ExasolTable) container);
 	}
 
 	@Override
-	protected void addObjectCreateActions(DBRProgressMonitor monitor, List<DBEPersistAction> actions,
-			SQLObjectEditor<ExasolTablePartitionColumn, ExasolTable>.ObjectCreateCommand command,
-			Map<String, Object> options) {
-		ExasolTable table = (ExasolTable) command.getObject().getTable();
+	protected void addObjectCreateActions(DBRProgressMonitor monitor, DBCExecutionContext executionContext, List<DBEPersistAction> actions,
+                                          ObjectCreateCommand command,
+                                          Map<String, Object> options) {
+		ExasolTable table = command.getObject().getTable();
 		try {
-			actions.add(new SQLDatabasePersistAction(generateAction(table)));
+			actions.add(new SQLDatabasePersistAction(generateAction(monitor, table)));
 		} catch (DBException e) {
 			LOG.error("Failed to create Partition Action", e);
 		}
 	}
 
 	@Override
-	protected void addObjectDeleteActions(List<DBEPersistAction> actions,
-			SQLObjectEditor<ExasolTablePartitionColumn, ExasolTable>.ObjectDeleteCommand command,
-			Map<String, Object> options) {
+	protected void addObjectDeleteActions(DBRProgressMonitor monitor, DBCExecutionContext executionContext, List<DBEPersistAction> actions,
+										  ObjectDeleteCommand command,
+										  Map<String, Object> options) {
 		ExasolTablePartitionColumn col = command.getObject();
 		ExasolTablePartitionColumnCache cache = getObjectsCache(col);
 		cache.removeObject(col, false);
-		ExasolTable table = (ExasolTable) command.getObject().getTable();
+		ExasolTable table = command.getObject().getTable();
 		try {
-			actions.add(new SQLDatabasePersistAction(generateAction(table)));
+			actions.add(new SQLDatabasePersistAction(generateAction(monitor, table)));
 		} catch (DBException e) {
 			LOG.error("Failed to create Partition Action", e);
 		}
 	}
 	
-	private String generateAction(ExasolTable table) throws DBException
+	private String generateAction(DBRProgressMonitor monitor, ExasolTable table) throws DBException
 	{
-		if (table.getHasDistKey(new VoidProgressMonitor()) & table.getPartitions().size() == 0)
+		if (table.getAdditionalInfo(monitor).getHasPartitionKey(monitor) & table.getPartitions(monitor).size() == 0)
 		{
 			return "ALTER TABLE " + table.getFullyQualifiedName(DBPEvaluationContext.DDL) + " DROP PARTITION KEYS";
 		} 
-		if (table.getPartitions().size() > 0)
+		if (table.getPartitions(monitor).size() > 0)
 		{
-			if (! table.getHasPartitionKey(new VoidProgressMonitor()))
-				table.setHasPartitionKey(true, true);
-			return ExasolUtils.getPartitionDdl(table, new VoidProgressMonitor());
+			if (! table.getAdditionalInfo(monitor).getHasPartitionKey(monitor))
+					table.setHasPartitionKey(true, true);
+			return ExasolUtils.getPartitionDdl(table, monitor);
 		}
 			
 		return null;

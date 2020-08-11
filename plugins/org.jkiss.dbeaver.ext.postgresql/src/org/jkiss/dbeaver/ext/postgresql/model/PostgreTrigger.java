@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -35,6 +35,7 @@ import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
 import org.jkiss.dbeaver.model.sql.SQLUtils;
 import org.jkiss.dbeaver.model.sql.format.SQLFormatUtils;
 import org.jkiss.dbeaver.model.struct.DBSActionTiming;
+import org.jkiss.dbeaver.model.struct.DBSEntityElement;
 import org.jkiss.dbeaver.model.struct.DBSObjectState;
 import org.jkiss.dbeaver.model.struct.rdb.DBSManipulationType;
 import org.jkiss.dbeaver.model.struct.rdb.DBSTrigger;
@@ -49,7 +50,7 @@ import java.util.Map;
 /**
  * PostgreTrigger
  */
-public class PostgreTrigger implements DBSTrigger, DBPQualifiedObject, PostgreObject, PostgreScriptObject, DBPStatefulObject
+public class PostgreTrigger implements DBSTrigger, DBSEntityElement, DBPQualifiedObject, PostgreObject, PostgreScriptObject, DBPStatefulObject
 {
     private static final Log log = Log.getLog(PostgreTrigger.class);
 
@@ -314,11 +315,18 @@ public class PostgreTrigger implements DBSTrigger, DBPQualifiedObject, PostgreOb
     @Override
     public void refreshObjectState(DBRProgressMonitor monitor) throws DBCException {
         try (JDBCSession session = DBUtils.openMetaSession(monitor, this, "Refresh triggers state")) {
-            enabledState = JDBCUtils.queryString(session, "SELECT tgenabled FROM pg_catalog.pg_trigger WHERE oid=?", getObjectId());
-        } catch (SQLException e) {
-            throw new DBCException(e, getDataSource());
+            try {
+                enabledState = JDBCUtils.queryString(session, "SELECT tgenabled FROM pg_catalog.pg_trigger WHERE oid=?", getObjectId());
+            } catch (SQLException e) {
+                throw new DBCException(e, session.getExecutionContext());
+            }
         }
 
+    }
+
+    @Override
+    public String toString() {
+        return getFullyQualifiedName(DBPEvaluationContext.UI);
     }
 
     public static class ColumnNameTransformer implements IPropertyValueTransformer {

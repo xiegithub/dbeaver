@@ -1,7 +1,7 @@
 /*
  * DBeaver - Universal Database Manager
  * Copyright (C) 2016-2016 Karl Griesser (fullref@gmail.com)
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,7 +26,6 @@ import org.jkiss.dbeaver.ext.exasol.model.ExasolSchema;
 import org.jkiss.dbeaver.ext.exasol.model.ExasolTableColumn;
 import org.jkiss.dbeaver.ext.exasol.model.ExasolView;
 import org.jkiss.dbeaver.ext.exasol.tools.ExasolUtils;
-import org.jkiss.dbeaver.model.exec.jdbc.JDBCDatabaseMetaData;
 import org.jkiss.dbeaver.model.exec.jdbc.JDBCResultSet;
 import org.jkiss.dbeaver.model.exec.jdbc.JDBCSession;
 import org.jkiss.dbeaver.model.exec.jdbc.JDBCStatement;
@@ -41,7 +40,7 @@ import java.sql.SQLException;
  */
 public class ExasolViewCache extends JDBCStructCache<ExasolSchema, ExasolView, ExasolTableColumn> {
 
-	private static final String SQL_COLS_VIEW = "SELECT " + 
+	private static final String SQL_COLS_VIEW = "/*snapshot execution*/ SELECT " + 
 			"c.* " + 
 			"FROM " + 
 			"SYS.%s_COLUMNS c " + 
@@ -50,7 +49,7 @@ public class ExasolViewCache extends JDBCStructCache<ExasolSchema, ExasolView, E
 			"AND COLUMN_TABLE = '%s' " + 
 			"ORDER BY " + 
 			"COLUMN_ORDINAL_POSITION ";
-	private static final String SQL_COLS_ALL = "SELECT " + 
+	private static final String SQL_COLS_ALL = "/*snapshot execution*/ SELECT " + 
 			"c.* " + 
 			"FROM " + 
 			"SYS.%s_COLUMNS c " + 
@@ -60,7 +59,7 @@ public class ExasolViewCache extends JDBCStructCache<ExasolSchema, ExasolView, E
 			"COLUMN_ORDINAL_POSITION ";
 
 	private static final String SQL_COLS_SYS_VIEW = ""
-			+ "SELECT OBJECT_ID as COLUMN_OBJECT_ID, " + 
+			+ "/*snapshot execution*/ SELECT OBJECT_ID as COLUMN_OBJECT_ID, " + 
 			"	TABLE_CAT, " + 
 			"	TABLE_SCHEM as COLUMN_SCHEMA, " + 
 			"	TABLE_NAME as COLUMN_TABLE, " + 
@@ -93,7 +92,7 @@ public class ExasolViewCache extends JDBCStructCache<ExasolSchema, ExasolView, E
 			"WHERE table_schem = '%s' AND table_name = '%s'";
 
 	private static final String SQL_COLS_SYS_ALL = ""
-			+ "SELECT OBJECT_ID as COLUMN_OBJECT_ID, " + 
+			+ "/*snapshot execution*/ SELECT OBJECT_ID as COLUMN_OBJECT_ID, " + 
 			"	TABLE_CAT, " + 
 			"	TABLE_SCHEM as COLUMN_SCHEMA, " + 
 			"	TABLE_NAME as COLUMN_TABLE, " + 
@@ -126,18 +125,27 @@ public class ExasolViewCache extends JDBCStructCache<ExasolSchema, ExasolView, E
 			"WHERE table_schem = '%s' ";
 	
 	
+	private static final String SQL_VIEWS = "/*snapshot execution*/ select OWNER,OBJECT_ID,TABLE_CAT,TABLE_SCHEM,TABLE_NAME as COLUMN_TABLE,TABLE_TYPE,REMARKS,TYPE_CAT,TYPE_SCHEM,TYPE_NAME,SELF_REFERENCING_COL_NAME,REF_GENERATION from \"$ODBCJDBC\".ALL_TABLES WHERE TABLE_SCHEM = '%s' and TABLE_TYPE = 'VIEW' " +
+            " union all select 'SYS',-1,' ',SCHEMA_name, object_name as column_table, object_type,object_comment,null, null,null,null,null from EXA_SYSCAT where SCHEMA_NAME = '%s' order by TABLE_NAME";
+	
+	
 
     public ExasolViewCache() {
-        super("TABLE_NAME");
+        super("COLUMN_TABLE");
 
     }
 
-	@Override
+	@NotNull
+    @Override
     protected JDBCStatement prepareObjectsStatement(@NotNull JDBCSession session, @NotNull ExasolSchema exasolSchema) throws SQLException {
-        JDBCDatabaseMetaData meta = session.getMetaData();
 
-        return meta.getTables("EXA_DB", exasolSchema.getName(), null,
-                new String[] { "VIEW", "SYSTEM TABLE" }).getSourceStatement();
+		String sql = String.format(SQL_VIEWS, exasolSchema.getName(),exasolSchema.getName());
+		
+		JDBCStatement dbstat = session.createStatement();
+		
+		dbstat.setQueryString(sql);
+
+		return dbstat;
     }
 
     @Override

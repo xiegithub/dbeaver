@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,52 +20,37 @@ import org.eclipse.core.resources.*;
 import org.eclipse.core.runtime.*;
 import org.eclipse.core.runtime.jobs.Job;
 import org.eclipse.equinox.security.storage.ISecurePreferences;
-import org.eclipse.equinox.security.storage.SecurePreferencesFactory;
 import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
-import org.jkiss.dbeaver.DBException;
 import org.jkiss.dbeaver.Log;
 import org.jkiss.dbeaver.model.*;
-import org.jkiss.dbeaver.model.app.DBASecureStorage;
+import org.jkiss.dbeaver.model.access.DBAAuthProfile;
 import org.jkiss.dbeaver.model.app.DBPDataSourceRegistry;
 import org.jkiss.dbeaver.model.app.DBPPlatform;
-import org.jkiss.dbeaver.model.connection.*;
-import org.jkiss.dbeaver.model.impl.preferences.SimplePreferenceStore;
-import org.jkiss.dbeaver.model.net.DBWHandlerConfiguration;
-import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
-import org.jkiss.dbeaver.model.runtime.DBRRunnableWithProgress;
-import org.jkiss.dbeaver.model.runtime.DBRShellCommand;
+import org.jkiss.dbeaver.model.app.DBPProject;
+import org.jkiss.dbeaver.model.app.DBPWorkspace;
+import org.jkiss.dbeaver.model.connection.DBPAuthModelDescriptor;
+import org.jkiss.dbeaver.model.connection.DBPConnectionConfiguration;
+import org.jkiss.dbeaver.model.connection.DBPDataSourceProviderRegistry;
+import org.jkiss.dbeaver.model.connection.DBPDriver;
+import org.jkiss.dbeaver.model.net.DBWNetworkProfile;
+import org.jkiss.dbeaver.model.runtime.*;
 import org.jkiss.dbeaver.model.struct.DBSObject;
 import org.jkiss.dbeaver.model.struct.DBSObjectFilter;
-import org.jkiss.dbeaver.model.struct.rdb.DBSCatalog;
-import org.jkiss.dbeaver.model.struct.rdb.DBSSchema;
-import org.jkiss.dbeaver.registry.driver.DriverDescriptor;
-import org.jkiss.dbeaver.registry.network.NetworkHandlerDescriptor;
-import org.jkiss.dbeaver.registry.network.NetworkHandlerRegistry;
+import org.jkiss.dbeaver.model.virtual.DBVModel;
 import org.jkiss.dbeaver.runtime.DBWorkbench;
-import org.jkiss.dbeaver.runtime.encode.EncryptionException;
-import org.jkiss.dbeaver.runtime.encode.PasswordEncrypter;
-import org.jkiss.dbeaver.runtime.encode.SimpleStringEncrypter;
 import org.jkiss.dbeaver.runtime.resource.DBeaverNature;
-import org.jkiss.dbeaver.utils.GeneralUtils;
+import org.jkiss.dbeaver.utils.ContentUtils;
 import org.jkiss.dbeaver.utils.RuntimeUtils;
 import org.jkiss.utils.ArrayUtils;
 import org.jkiss.utils.CommonUtils;
-import org.jkiss.utils.xml.SAXListener;
-import org.jkiss.utils.xml.SAXReader;
-import org.jkiss.utils.xml.XMLBuilder;
-import org.jkiss.utils.xml.XMLException;
-import org.xml.sax.Attributes;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
 import java.lang.reflect.InvocationTargetException;
 import java.util.*;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
-public class DataSourceRegistry implements DBPDataSourceRegistry
-{
+public class DataSourceRegistry implements DBPDataSourceRegistry {
     @Deprecated
     public static final String DEFAULT_AUTO_COMMIT = "default.autocommit"; //$NON-NLS-1$
     @Deprecated
@@ -79,42 +64,55 @@ public class DataSourceRegistry implements DBPDataSourceRegistry
 
     public static final String OLD_CONFIG_FILE_NAME = "data-sources.xml"; //$NON-NLS-1$
 
-    private static PasswordEncrypter ENCRYPTOR = new SimpleStringEncrypter();
-
     private final DBPPlatform platform;
-    private final IProject project;
+    private final DBPProject project;
 
     private final Map<IFile, DataSourceOrigin> origins = new LinkedHashMap<>();
-    private final List<DataSourceDescriptor> dataSources = new ArrayList<>();
+    private final Map<String, DataSourceDescriptor> dataSources = new LinkedHashMap<>();
     private final List<DBPEventListener> dataSourceListeners = new ArrayList<>();
     private final List<DataSourceFolder> dataSourceFolders = new ArrayList<>();
     private final List<DBSObjectFilter> savedFilters = new ArrayList<>();
+    private final List<DBWNetworkProfile> networkProfiles = new ArrayList<>();
+    private final Map<String, DBAAuthProfile> authProfiles = new LinkedHashMap<>();
     private volatile boolean saveInProgress = false;
 
-    public DataSourceRegistry(DBPPlatform platform, IProject project)
-    {
+    private final DBVModel.ModelChangeListener modelChangeListener = new DBVModel.ModelChangeListener();
+    private volatile ConfigSaver configSaver;
+
+    public DataSourceRegistry(DBPPlatform platform, DBPProject project) {
         this.platform = platform;
         this.project = project;
-        loadDataSources(false);
+
+        loadDataSources(true);
         DataSourceProviderRegistry.getInstance().fireRegistryChange(this, true);
+
+        addDataSourceListener(modelChangeListener);
     }
 
     /**
      * Create copy
      */
-    public DataSourceRegistry(DataSourceRegistry source, IProject project, boolean copyDataSources) {
+    public DataSourceRegistry(DataSourceRegistry source, ProjectMetadata project, Function<DBPDataSourceContainer, Boolean> filter) {
         this.platform = source.platform;
         this.project = project;
-        if (copyDataSources) {
-            for (DataSourceDescriptor ds : source.dataSources) {
-                dataSources.add(new DataSourceDescriptor(ds, this));
+        {
+            // Copy all or only template datasources.
+            // Provided and template datasources are needed for global model mode
+            // FIXME: we don't need to copy provided datasources. It is a temporary workaround for CB, replaced with templates
+            for (DataSourceDescriptor ds : source.dataSources.values()) {
+                if (filter == null || filter.apply(ds)) {
+                    DataSourceDescriptor dsCopy = new DataSourceDescriptor(ds, this, false);
+                    dataSources.put(dsCopy.getId(), dsCopy);
+                }
             }
         }
+
+        addDataSourceListener(modelChangeListener);
     }
 
     @Override
-    public void dispose()
-    {
+    public void dispose() {
+        removeDataSourceListener(modelChangeListener);
         DataSourceProviderRegistry.getInstance().fireRegistryChange(this, false);
         synchronized (dataSourceListeners) {
             if (!this.dataSourceListeners.isEmpty()) {
@@ -127,23 +125,22 @@ public class DataSourceRegistry implements DBPDataSourceRegistry
         // Do not save config on shutdown.
         // Some data source might be broken due to misconfiguration
         // and we don't want to lose their config just after restart
-//        if (getProject().isOpen()) {
+//        if (getProjectNode().isOpen()) {
 //            flushConfig();
 //        }
         // Dispose and clear all descriptors
         synchronized (dataSources) {
-            for (DataSourceDescriptor dataSourceDescriptor : this.dataSources) {
+            for (DataSourceDescriptor dataSourceDescriptor : this.dataSources.values()) {
                 dataSourceDescriptor.dispose();
             }
             this.dataSources.clear();
         }
     }
 
-    private void closeConnections(long waitTime)
-    {
+    private void closeConnections(long waitTime) {
         boolean hasConnections = false;
         synchronized (dataSources) {
-            for (DataSourceDescriptor dataSource : dataSources) {
+            for (DataSourceDescriptor dataSource : dataSources.values()) {
                 if (dataSource.isConnected()) {
                     hasConnections = true;
                     break;
@@ -166,11 +163,29 @@ public class DataSourceRegistry implements DBPDataSourceRegistry
                     return origin;
                 }
             }
-            IFile defFile = project.getFile(CONFIG_FILE_NAME);
+            IFile defFile = getModernConfigFile();
+            if (!defFile.exists()) {
+                IFile legacyFile = getLegacyConfigFile();
+                if (legacyFile.exists()) {
+                    defFile = legacyFile;
+                }
+            }
             DataSourceOrigin origin = new DataSourceOrigin(defFile, true);
             origins.put(defFile, origin);
             return origin;
         }
+    }
+
+    private IFile getLegacyConfigFile() {
+        return project
+            .getEclipseProject()
+            .getFile(LEGACY_CONFIG_FILE_NAME);
+    }
+
+    private IFile getModernConfigFile() {
+        return project
+            .getMetadataFolder(false)
+            .getFile(MODERN_CONFIG_FILE_NAME);
     }
 
     @NotNull
@@ -183,24 +198,17 @@ public class DataSourceRegistry implements DBPDataSourceRegistry
 
     @Nullable
     @Override
-    public DataSourceDescriptor getDataSource(String id)
-    {
+    public DataSourceDescriptor getDataSource(String id) {
         synchronized (dataSources) {
-            for (DataSourceDescriptor dsd : dataSources) {
-                if (dsd.getId().equals(id)) {
-                    return dsd;
-                }
-            }
+            return dataSources.get(id);
         }
-        return null;
     }
 
     @Nullable
     @Override
-    public DataSourceDescriptor getDataSource(DBPDataSource dataSource)
-    {
+    public DataSourceDescriptor getDataSource(DBPDataSource dataSource) {
         synchronized (dataSources) {
-            for (DataSourceDescriptor dsd : dataSources) {
+            for (DataSourceDescriptor dsd : dataSources.values()) {
                 if (dsd.getDataSource() == dataSource) {
                     return dsd;
                 }
@@ -211,10 +219,9 @@ public class DataSourceRegistry implements DBPDataSourceRegistry
 
     @Nullable
     @Override
-    public DataSourceDescriptor findDataSourceByName(String name)
-    {
+    public DataSourceDescriptor findDataSourceByName(String name) {
         synchronized (dataSources) {
-            for (DataSourceDescriptor dsd : dataSources) {
+            for (DataSourceDescriptor dsd : dataSources.values()) {
                 if (dsd.getName().equals(name)) {
                     return dsd;
                 }
@@ -223,22 +230,36 @@ public class DataSourceRegistry implements DBPDataSourceRegistry
         return null;
     }
 
+    @NotNull
     @Override
-    public List<DataSourceDescriptor> getDataSources()
-    {
+    public List<? extends DBPDataSourceContainer> getDataSourcesByProfile(@NotNull DBWNetworkProfile profile) {
         List<DataSourceDescriptor> dsCopy;
         synchronized (dataSources) {
-            dsCopy = CommonUtils.copyList(dataSources);
+            dsCopy = CommonUtils.copyList(dataSources.values());
         }
-        dsCopy.sort((o1, o2) -> o1.getName().compareToIgnoreCase(o2.getName()));
+        dsCopy.removeIf(ds -> !CommonUtils.equalObjects(ds.getConnectionConfiguration().getConfigProfileName(), profile.getProfileName()));
         return dsCopy;
     }
 
+    @NotNull
     @Override
-    public DBPDataSourceContainer createDataSource(DBPDriver driver, DBPConnectionConfiguration connConfig) {
-        return new DataSourceDescriptor(this, DataSourceDescriptor.generateNewId(driver), (DriverDescriptor) driver, connConfig);
+    public List<DataSourceDescriptor> getDataSources() {
+        List<DataSourceDescriptor> dsCopy;
+        synchronized (dataSources) {
+            dsCopy = CommonUtils.copyList(dataSources.values());
+        }
+        dsCopy.sort((o1, o2) -> CommonUtils.notNull(o1.getName(), o1.getId()).compareToIgnoreCase(
+            CommonUtils.notNull(o2.getName(), o2.getId())));
+        return dsCopy;
     }
 
+    @NotNull
+    @Override
+    public DBPDataSourceContainer createDataSource(DBPDriver driver, DBPConnectionConfiguration connConfig) {
+        return new DataSourceDescriptor(this, DataSourceDescriptor.generateNewId(driver), driver, connConfig);
+    }
+
+    @NotNull
     @Override
     public DBPDataSourceContainer createDataSource(DBPDataSourceContainer source) {
         DataSourceDescriptor newDS = new DataSourceDescriptor((DataSourceDescriptor) source);
@@ -246,11 +267,13 @@ public class DataSourceRegistry implements DBPDataSourceRegistry
         return newDS;
     }
 
+    @NotNull
     @Override
-    public List<? extends DBPDataSourceFolder> getAllFolders() {
+    public List<DataSourceFolder> getAllFolders() {
         return dataSourceFolders;
     }
 
+    @NotNull
     @Override
     public List<DataSourceFolder> getRootFolders() {
         List<DataSourceFolder> rootFolders = new ArrayList<>();
@@ -281,7 +304,7 @@ public class DataSourceRegistry implements DBPDataSourceRegistry
         if (parent != null) {
             folderImpl.setParent(null);
         }
-        for (DataSourceDescriptor ds : dataSources) {
+        for (DataSourceDescriptor ds : dataSources.values()) {
             if (ds.getFolder() == folder) {
                 if (dropContents) {
                     removeDataSource(ds);
@@ -294,8 +317,8 @@ public class DataSourceRegistry implements DBPDataSourceRegistry
     }
 
     @Override
-    public DBPDataSourceRegistry createCopy(IProject project, boolean copyDataSources) {
-        return new DataSourceRegistry(this, project, copyDataSources);
+    public DBPDataSourceRegistry createCopy(DBPProject project, Function<DBPDataSourceContainer, Boolean> filter) {
+        return new DataSourceRegistry(this, (ProjectMetadata) project, filter);
     }
 
     private DataSourceFolder findRootFolder(String name) {
@@ -312,7 +335,7 @@ public class DataSourceRegistry implements DBPDataSourceRegistry
         return findFolderByPath(path, true);
     }
 
-    private DataSourceFolder findFolderByPath(String path, boolean create) {
+    DataSourceFolder findFolderByPath(String path, boolean create) {
         DataSourceFolder parent = null;
         for (String name : path.split("/")) {
             DataSourceFolder folder = parent == null ? findRootFolder(name) : parent.getChild(name);
@@ -327,6 +350,10 @@ public class DataSourceRegistry implements DBPDataSourceRegistry
             parent = folder;
         }
         return parent;
+    }
+
+    void addDataSourceFolder(DataSourceFolder folder) {
+        dataSourceFolders.add(folder);
     }
 
     ////////////////////////////////////////////////////
@@ -372,28 +399,112 @@ public class DataSourceRegistry implements DBPDataSourceRegistry
         }
     }
 
+    void addSavedFilter(DBSObjectFilter filter) {
+        savedFilters.add(filter);
+    }
+
+    ////////////////////////////////////////////////////
+    // Config profiles
+
+    @Nullable
+    @Override
+    public DBWNetworkProfile getNetworkProfile(String name) {
+        synchronized (networkProfiles) {
+            return networkProfiles.stream().filter(profile -> CommonUtils.equalObjects(profile.getProfileName(), name)).findFirst().orElse(null);
+        }
+    }
+
+    @NotNull
+    @Override
+    public List<DBWNetworkProfile> getNetworkProfiles() {
+        return networkProfiles;
+    }
+
+    @Override
+    public void updateNetworkProfile(DBWNetworkProfile profile) {
+        for (int i = 0; i < networkProfiles.size(); i++) {
+            if (CommonUtils.equalObjects(networkProfiles.get(i).getProfileName(), profile.getProfileName())) {
+                networkProfiles.set(i, profile);
+                return;
+            }
+        }
+        networkProfiles.add(profile);
+    }
+
+    @Override
+    public void removeNetworkProfile(DBWNetworkProfile profile) {
+        networkProfiles.remove(profile);
+    }
+
+    ////////////////////////////////////////////////////
+    // Auth profiles
+
+    @Nullable
+    @Override
+    public DBAAuthProfile getAuthProfile(String id) {
+        synchronized (authProfiles) {
+            return authProfiles.get(id);
+        }
+    }
+
+    @NotNull
+    @Override
+    public List<DBAAuthProfile> getAllAuthProfiles() {
+        synchronized (authProfiles) {
+            return new ArrayList<>(authProfiles.values());
+        }
+    }
+
+    @NotNull
+    @Override
+    public List<DBAAuthProfile> getApplicableAuthProfiles(@Nullable DBPDriver driver) {
+        DBPDataSourceProviderRegistry dspRegistry = DBWorkbench.getPlatform().getDataSourceProviderRegistry();
+        synchronized (authProfiles) {
+            return authProfiles.values().stream().filter(p -> {
+                DBPAuthModelDescriptor authModel = dspRegistry.getAuthModel(p.getAuthModelId());
+                return authModel != null && authModel.isApplicableTo(driver);
+            }).collect(Collectors.toList());
+        }
+    }
+
+    @Override
+    public void updateAuthProfile(DBAAuthProfile profile) {
+        synchronized (authProfiles) {
+            authProfiles.put(profile.getProfileId(), profile);
+        }
+    }
+
+    @Override
+    public void removeAuthProfile(DBAAuthProfile profile) {
+        synchronized (authProfiles) {
+            authProfiles.remove(profile.getProfileId());
+        }
+    }
+
     ////////////////////////////////////////////////////
     // Data sources
 
-    public void addDataSource(DBPDataSourceContainer dataSource)
-    {
+    public void addDataSource(@NotNull DBPDataSourceContainer dataSource) {
         final DataSourceDescriptor descriptor = (DataSourceDescriptor) dataSource;
-        synchronized (dataSources) {
-            this.dataSources.add(descriptor);
-        }
-        if (!dataSource.isTemporary()) {
+        addDataSourceToList(descriptor);
+        if (!descriptor.isDetached()) {
             this.saveDataSources();
         }
         notifyDataSourceListeners(new DBPEvent(DBPEvent.Action.OBJECT_ADD, descriptor, true));
     }
 
-    public void removeDataSource(DBPDataSourceContainer dataSource)
-    {
+    void addDataSourceToList(@NotNull DataSourceDescriptor descriptor) {
+        synchronized (dataSources) {
+            this.dataSources.put(descriptor.getId(), descriptor);
+        }
+    }
+
+    public void removeDataSource(@NotNull DBPDataSourceContainer dataSource) {
         final DataSourceDescriptor descriptor = (DataSourceDescriptor) dataSource;
         synchronized (dataSources) {
-            this.dataSources.remove(descriptor);
+            this.dataSources.remove(descriptor.getId());
         }
-        if (!dataSource.isTemporary()) {
+        if (!descriptor.isDetached()) {
             this.saveDataSources();
         }
         try {
@@ -403,18 +514,27 @@ public class DataSourceRegistry implements DBPDataSourceRegistry
         }
     }
 
-    public void updateDataSource(DBPDataSourceContainer dataSource)
-    {
-        if (!dataSource.isTemporary()) {
-            this.saveDataSources();
+    public void updateDataSource(@NotNull DBPDataSourceContainer dataSource) {
+        if (!(dataSource instanceof DataSourceDescriptor)) {
+            return;
         }
-        this.fireDataSourceEvent(DBPEvent.Action.OBJECT_UPDATE, dataSource);
+        if (!dataSources.containsKey(dataSource.getId())) {
+            addDataSource(dataSource);
+        } else {
+            if (!((DataSourceDescriptor) dataSource).isDetached()) {
+                this.saveDataSources();
+            }
+            this.fireDataSourceEvent(DBPEvent.Action.OBJECT_UPDATE, dataSource);
+        }
     }
 
     @Override
-    public void flushConfig()
-    {
-        this.saveDataSources();
+    public void flushConfig() {
+        // Use async config saver to avoid too frequent configuration re-save during some massive configuration update
+        if (configSaver == null) {
+            configSaver = new ConfigSaver();
+        }
+        configSaver.schedule(100);
     }
 
     @Override
@@ -425,16 +545,14 @@ public class DataSourceRegistry implements DBPDataSourceRegistry
     }
 
     @Override
-    public void addDataSourceListener(DBPEventListener listener)
-    {
+    public void addDataSourceListener(@NotNull DBPEventListener listener) {
         synchronized (dataSourceListeners) {
             dataSourceListeners.add(listener);
         }
     }
 
     @Override
-    public boolean removeDataSourceListener(DBPEventListener listener)
-    {
+    public boolean removeDataSourceListener(@NotNull DBPEventListener listener) {
         synchronized (dataSourceListeners) {
             return dataSourceListeners.remove(listener);
         }
@@ -442,13 +560,11 @@ public class DataSourceRegistry implements DBPDataSourceRegistry
 
     private void fireDataSourceEvent(
         DBPEvent.Action action,
-        DBSObject object)
-    {
+        DBSObject object) {
         notifyDataSourceListeners(new DBPEvent(action, object));
     }
 
-    public void notifyDataSourceListeners(final DBPEvent event)
-    {
+    public void notifyDataSourceListeners(final DBPEvent event) {
         final List<DBPEventListener> listeners;
         synchronized (dataSourceListeners) {
             if (dataSourceListeners.isEmpty()) {
@@ -460,6 +576,7 @@ public class DataSourceRegistry implements DBPDataSourceRegistry
             {
                 setSystem(true);
             }
+
             @Override
             protected IStatus run(IProgressMonitor monitor) {
                 for (DBPEventListener listener : listeners) {
@@ -473,22 +590,39 @@ public class DataSourceRegistry implements DBPDataSourceRegistry
     @Override
     @NotNull
     public ISecurePreferences getSecurePreferences() {
-        return SecurePreferencesFactory.getDefault().node("dbeaver").node("datasources");
+        return platform.getApplication().getSecureStorage().getSecurePreferences().node("datasources");
     }
+
+    /**
+     * @return true if there is at least one project which was initialized.
+     */
+    public static boolean isProjectsInitialized() {
+        for (DBPProject project : DBWorkbench.getPlatform().getWorkspace().getProjects()) {
+            if (project.isRegistryLoaded()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
 
     public static List<DBPDataSourceContainer> getAllDataSources() {
         List<DBPDataSourceContainer> result = new ArrayList<>();
-        for (IProject project : DBWorkbench.getPlatform().getLiveProjects()) {
-            if (project.isOpen()) {
-                DBPDataSourceRegistry registry = DBWorkbench.getPlatform().getProjectManager().getDataSourceRegistry(project);
-                if (registry != null) {
-                    result.addAll(registry.getDataSources());
-                }
+        DBPWorkspace workspace = DBWorkbench.getPlatform().getWorkspace();
+        for (DBPProject project : workspace.getProjects()) {
+            if (project.isOpen() && project.isRegistryLoaded()) {
+                result.addAll(project.getDataSourceRegistry().getDataSources());
             }
         }
         return result;
     }
 
+    @Override
+    public List<? extends DBPDataSourceContainer> loadDataSourcesFromFile(@NotNull DBPDataSourceConfigurationStorage configurationStorage, @NotNull IFile fromFile) {
+        ParseResults parseResults = new ParseResults();
+        loadDataSources(fromFile, false, true, parseResults, configurationStorage);
+        return new ArrayList<>(parseResults.addedDataSources);
+    }
 
     private void loadDataSources(boolean refresh) {
         if (!project.isOpen()) {
@@ -496,51 +630,89 @@ public class DataSourceRegistry implements DBPDataSourceRegistry
         }
         // Clear filters before reload
         savedFilters.clear();
-        // Parse with SAX
+
+        // Parse datasources
         ParseResults parseResults = new ParseResults();
         try {
-            for (IResource res : project.members(IContainer.INCLUDE_HIDDEN)) {
-                if (res instanceof IFile) {
-                    IFile file = (IFile) res;
-                    if (res.getName().startsWith(CONFIG_FILE_PREFIX) && res.getName().endsWith(CONFIG_FILE_EXT)) {
-                        if (file.exists()) {
+            // Modern way - search json configs in metadata folder
+            boolean modernFormat = false;
+            IFolder metadataFolder = project.getMetadataFolder(false);
+            if (metadataFolder.exists()) {
+                if (refresh) {
+                    metadataFolder.refreshLocal(IResource.DEPTH_INFINITE, new NullProgressMonitor());
+                }
+                for (IResource res : metadataFolder.members(IContainer.INCLUDE_HIDDEN | IContainer.INCLUDE_TEAM_PRIVATE_MEMBERS)) {
+                    if (res instanceof IFile && res.exists() &&
+                        res.getName().startsWith(MODERN_CONFIG_FILE_PREFIX) && res.getName().endsWith(MODERN_CONFIG_FILE_EXT)) {
+                        loadDataSources((IFile) res, refresh, true, parseResults);
+                        modernFormat = true;
+                    }
+                }
+            }
+            if (!modernFormat) {
+                // Logacy way (search config.xml in project folder)
+                for (IResource res : project.getEclipseProject().members(IContainer.INCLUDE_HIDDEN)) {
+                    if (res instanceof IFile) {
+                        IFile file = (IFile) res;
+                        if (res.getName().startsWith(LEGACY_CONFIG_FILE_PREFIX) && res.getName().endsWith(LEGACY_CONFIG_FILE_EXT)) {
                             if (file.exists()) {
-                                loadDataSources(file, refresh, parseResults);
+                                if (file.exists()) {
+                                    loadDataSources(file, refresh, false, parseResults);
+                                }
                             }
                         }
                     }
                 }
+                if (!origins.isEmpty()) {
+                    // Save config immediately in the new format
+                    flushConfig();
+                }
             }
+
         } catch (CoreException e) {
-            log.error("Error reading datasources configuration", e);
+            log.error("Error reading data sources configuration", e);
+        }
+
+        {
+            // Call external configurations
+            Map<String, Object> searchOptions = new LinkedHashMap<>();
+            for (DataSourceConfigurationStorageDescriptor cfd : DataSourceProviderRegistry.getInstance().getDataSourceConfigurationStorages()) {
+                try {
+                    List<? extends DBPDataSourceContainer> loadedDS = cfd.getInstance().loadDataSources(this, searchOptions);
+                    if (!loadedDS.isEmpty()) {
+                        parseResults.addedDataSources.addAll(loadedDS);
+                    }
+                } catch (Exception e) {
+                    log.error("Error loading data sources from storage '" + cfd.getName() + "'", e);
+                }
+            }
         }
 
         // Reflect changes
         if (refresh) {
-            for (DataSourceDescriptor ds : parseResults.updatedDataSources) {
+            for (DBPDataSourceContainer ds : parseResults.updatedDataSources) {
                 fireDataSourceEvent(DBPEvent.Action.OBJECT_UPDATE, ds);
             }
-            for (DataSourceDescriptor ds : parseResults.addedDataSources) {
+            for (DBPDataSourceContainer ds : parseResults.addedDataSources) {
                 fireDataSourceEvent(DBPEvent.Action.OBJECT_ADD, ds);
             }
 
             List<DataSourceDescriptor> removedDataSource = new ArrayList<>();
-            for (DataSourceDescriptor ds : dataSources) {
+            for (DataSourceDescriptor ds : dataSources.values()) {
                 if (!parseResults.addedDataSources.contains(ds) && !parseResults.updatedDataSources.contains(ds)) {
                     removedDataSource.add(ds);
                 }
             }
             for (DataSourceDescriptor ds : removedDataSource) {
-                this.dataSources.remove(ds);
+                this.dataSources.remove(ds.getId());
                 this.fireDataSourceEvent(DBPEvent.Action.OBJECT_REMOVE, ds);
                 ds.dispose();
             }
         }
     }
 
-    private void loadDataSources(IFile fromFile, boolean refresh, ParseResults parseResults)
-    {
-        boolean extraConfig = !fromFile.getName().equalsIgnoreCase(CONFIG_FILE_NAME);
+    private void loadDataSources(@NotNull IFile fromFile, boolean refresh, boolean modern, @NotNull ParseResults parseResults) {
+        boolean extraConfig = !fromFile.getName().equalsIgnoreCase(modern ? MODERN_CONFIG_FILE_NAME : LEGACY_CONFIG_FILE_NAME);
         DataSourceOrigin origin;
         synchronized (origins) {
             origin = origins.get(fromFile);
@@ -549,98 +721,81 @@ public class DataSourceRegistry implements DBPDataSourceRegistry
                 origins.put(fromFile, origin);
             }
         }
+        loadDataSources(fromFile, refresh, modern, parseResults, origin);
+    }
+
+    private void loadDataSources(@NotNull IFile fromFile, boolean refresh, boolean modern, @NotNull ParseResults parseResults, @NotNull DBPDataSourceConfigurationStorage configurationStorage) {
         if (!fromFile.exists()) {
             return;
         }
-        try (InputStream is = fromFile.getContents(true)) {
-            loadDataSources(is, origin, refresh, parseResults);
-        } catch (DBException ex) {
-            log.warn("Error loading datasource config from " + fromFile.getFullPath(), ex);
-        } catch (IOException ex) {
-            log.warn("IO error", ex);
-        } catch (CoreException e) {
-            log.warn("Resource error", e);
-        }
-    }
 
-    private void loadDataSources(InputStream is, DataSourceOrigin origin, boolean refresh, ParseResults parseResults)
-        throws DBException, IOException
-    {
-        SAXReader parser = new SAXReader(is);
         try {
-            final DataSourcesParser dsp = new DataSourcesParser(origin, refresh, parseResults);
-            parser.parse(dsp);
+            DataSourceSerializer serializer = modern ? new DataSourceSerializerModern(this) : new DataSourceSerializerLegacy(this);
+            serializer.parseDataSources(fromFile, configurationStorage, refresh, parseResults);
+            updateProjectNature();
+        } catch (Exception ex) {
+            log.error("Error loading datasource config from " + fromFile.getFullPath(), ex);
         }
-        catch (XMLException ex) {
-            throw new DBException("Datasource config parse error", ex);
-        }
-        updateProjectNature();
     }
 
-    private void saveDataSources()
-    {
+    private void saveDataSources() {
         updateProjectNature();
-        final IProgressMonitor progressMonitor = new NullProgressMonitor();
+        final DBRProgressMonitor monitor = new VoidProgressMonitor();
         saveInProgress = true;
         try {
             for (DataSourceOrigin origin : origins.values()) {
                 List<DataSourceDescriptor> localDataSources = getDataSources(origin);
+
                 IFile configFile = origin.getSourceFile();
+
                 try {
-                    if (localDataSources.isEmpty()) {
-                        configFile.delete(true, false, progressMonitor);
+                    configFile.getParent().refreshLocal(IResource.DEPTH_ONE, new NullProgressMonitor());
+                } catch (Exception e) {
+                    log.debug("Error refreshing config directory", e);
+                }
+
+                if (origin.isDefault()) {
+                    if (project.isModernProject()) {
+                        configFile = getModernConfigFile();
                     } else {
-                        // Save in temp memory to be safe (any error during direct write will corrupt configuration)
-                        ByteArrayOutputStream tempStream = new ByteArrayOutputStream(10000);
-                        try {
-                            XMLBuilder xml = new XMLBuilder(tempStream, GeneralUtils.UTF8_ENCODING);
-                            xml.setButify(true);
-                            try (XMLBuilder.Element el1 = xml.startElement("data-sources")) {
-                                if (origin.isDefault()) {
-                                    // Folders (only for default origin)
-                                    for (DataSourceFolder folder : dataSourceFolders) {
-                                        saveFolder(xml, folder);
-                                    }
-                                }
+                        configFile = getLegacyConfigFile();
+                    }
+                } else {
+                    if (configFile.getName().startsWith(LEGACY_CONFIG_FILE_PREFIX) && "xml".equals(configFile.getFileExtension())) {
+                        // Legacy configuration - move to metadata folder as json
+                        String newFileName = MODERN_CONFIG_FILE_PREFIX + configFile.getName().substring(LEGACY_CONFIG_FILE_PREFIX.length());
+                        int divPos = newFileName.lastIndexOf(".");
+                        newFileName = newFileName.substring(0, divPos) + ".json";
+                        configFile = project.getMetadataFolder(false).getFile(newFileName);
+                    }
+                }
+                try {
+                    ContentUtils.makeFileBackup(configFile);
 
-                                // Datasources
-                                for (DataSourceDescriptor dataSource : localDataSources) {
-                                    // Skip temporary
-                                    if (!dataSource.isTemporary()) {
-                                        saveDataSource(xml, dataSource);
-                                    }
-                                }
-
-                                // Filters
-                                if (origin.isDefault()) {
-                                    try (XMLBuilder.Element ignored = xml.startElement(RegistryConstants.TAG_FILTERS)) {
-                                        for (DBSObjectFilter cf : savedFilters) {
-                                            if (!cf.isEmpty()) {
-                                                saveObjectFiler(xml, null, null, cf);
-                                            }
-                                        }
-                                    }
-                                }
-
-                            }
-                            xml.flush();
-                        } catch (IOException ex) {
-                            log.warn("IO error while saving datasources", ex);
+                    if (localDataSources.isEmpty()) {
+                        if (configFile.exists()) {
+                            configFile.delete(true, false, monitor.getNestedMonitor());
                         }
-                        InputStream ifs = new ByteArrayInputStream(tempStream.toByteArray());
-                        if (!configFile.exists()) {
-                            configFile.create(ifs, true, progressMonitor);
-                            configFile.setHidden(true);
+                    } else {
+                        DataSourceSerializer serializer;
+                        if (!project.isModernProject()) {
+                            serializer = new DataSourceSerializerLegacy(this);
                         } else {
-                            configFile.setContents(ifs, true, false, progressMonitor);
+                            serializer = new DataSourceSerializerModern(this);
                         }
+                        project.getMetadataFolder(true);
+                        serializer.saveDataSources(
+                            monitor,
+                            origin,
+                            localDataSources,
+                            configFile);
                     }
                     try {
                         getSecurePreferences().flush();
                     } catch (Throwable e) {
                         log.error("Error saving secured preferences", e);
                     }
-                } catch (CoreException ex) {
+                } catch (Exception ex) {
                     log.error("Error saving datasources configuration", ex);
                 }
             }
@@ -652,7 +807,7 @@ public class DataSourceRegistry implements DBPDataSourceRegistry
     private List<DataSourceDescriptor> getDataSources(DataSourceOrigin origin) {
         List<DataSourceDescriptor> result = new ArrayList<>();
         synchronized (dataSources) {
-            for (DataSourceDescriptor ds : dataSources) {
+            for (DataSourceDescriptor ds : dataSources.values()) {
                 if (ds.getOrigin() == origin) {
                     result.add(ds);
                 }
@@ -664,14 +819,15 @@ public class DataSourceRegistry implements DBPDataSourceRegistry
 
     private void updateProjectNature() {
         try {
-            final IProjectDescription description = project.getDescription();
+            IProject eclipseProject = project.getEclipseProject();
+            final IProjectDescription description = eclipseProject.getDescription();
             if (description != null) {
                 String[] natureIds = description.getNatureIds();
                 if (dataSources.isEmpty()) {
                     // Remove nature
                     if (ArrayUtils.contains(natureIds, DBeaverNature.NATURE_ID)) {
                         description.setNatureIds(ArrayUtils.remove(String.class, natureIds, DBeaverNature.NATURE_ID));
-                        project.setDescription(description, new NullProgressMonitor());
+                        eclipseProject.setDescription(description, new NullProgressMonitor());
                     }
 
                 } else {
@@ -679,7 +835,7 @@ public class DataSourceRegistry implements DBPDataSourceRegistry
                     if (!ArrayUtils.contains(natureIds, DBeaverNature.NATURE_ID)) {
                         description.setNatureIds(ArrayUtils.add(String.class, natureIds, DBeaverNature.NATURE_ID));
                         try {
-                            project.setDescription(description, new NullProgressMonitor());
+                            eclipseProject.setDescription(description, new NullProgressMonitor());
                         } catch (CoreException e) {
                             log.debug("Can't set project nature", e);
                         }
@@ -691,264 +847,6 @@ public class DataSourceRegistry implements DBPDataSourceRegistry
         }
     }
 
-    private void saveFolder(XMLBuilder xml, DataSourceFolder folder)
-        throws IOException
-    {
-        xml.startElement(RegistryConstants.TAG_FOLDER);
-        if (folder.getParent() != null) {
-            xml.addAttribute(RegistryConstants.ATTR_PARENT, folder.getParent().getFolderPath());
-        }
-        xml.addAttribute(RegistryConstants.ATTR_NAME, folder.getName());
-        if (!CommonUtils.isEmpty(folder.getDescription())) {
-            xml.addAttribute(RegistryConstants.ATTR_DESCRIPTION, folder.getDescription());
-        }
-        xml.endElement();
-    }
-
-    private void saveDataSource(XMLBuilder xml, DataSourceDescriptor dataSource)
-        throws IOException
-    {
-        xml.startElement(RegistryConstants.TAG_DATA_SOURCE);
-        xml.addAttribute(RegistryConstants.ATTR_ID, dataSource.getId());
-        xml.addAttribute(RegistryConstants.ATTR_PROVIDER, dataSource.getDriver().getProviderDescriptor().getId());
-        xml.addAttribute(RegistryConstants.ATTR_DRIVER, dataSource.getDriver().getId());
-        xml.addAttribute(RegistryConstants.ATTR_NAME, dataSource.getName());
-        xml.addAttribute(RegistryConstants.ATTR_SAVE_PASSWORD, dataSource.isSavePassword());
-        if (dataSource.isShowSystemObjects()) {
-            xml.addAttribute(RegistryConstants.ATTR_SHOW_SYSTEM_OBJECTS, dataSource.isShowSystemObjects());
-        }
-        if (dataSource.isShowUtilityObjects()) {
-            xml.addAttribute(RegistryConstants.ATTR_SHOW_UTIL_OBJECTS, dataSource.isShowUtilityObjects());
-        }
-        xml.addAttribute(RegistryConstants.ATTR_READ_ONLY, dataSource.isConnectionReadOnly());
-        if (dataSource.getFolder() != null) {
-            xml.addAttribute(RegistryConstants.ATTR_FOLDER, dataSource.getFolder().getFolderPath());
-        }
-        final String lockPasswordHash = dataSource.getLockPasswordHash();
-        if (!CommonUtils.isEmpty(lockPasswordHash)) {
-            xml.addAttribute(RegistryConstants.ATTR_LOCK_PASSWORD, lockPasswordHash);
-        }
-
-        {
-            // Connection info
-            DBPConnectionConfiguration connectionInfo = dataSource.getConnectionConfiguration();
-            xml.startElement(RegistryConstants.TAG_CONNECTION);
-            if (!CommonUtils.isEmpty(connectionInfo.getHostName())) {
-                xml.addAttribute(RegistryConstants.ATTR_HOST, connectionInfo.getHostName());
-            }
-            if (!CommonUtils.isEmpty(connectionInfo.getHostPort())) {
-                xml.addAttribute(RegistryConstants.ATTR_PORT, connectionInfo.getHostPort());
-            }
-            xml.addAttribute(RegistryConstants.ATTR_SERVER, CommonUtils.notEmpty(connectionInfo.getServerName()));
-            xml.addAttribute(RegistryConstants.ATTR_DATABASE, CommonUtils.notEmpty(connectionInfo.getDatabaseName()));
-            xml.addAttribute(RegistryConstants.ATTR_URL, CommonUtils.notEmpty(connectionInfo.getUrl()));
-
-            saveSecuredCredentials(xml,
-                dataSource,
-                null,
-                connectionInfo.getUserName(),
-                dataSource.isSavePassword() ? connectionInfo.getUserPassword() : null);
-
-            if (!CommonUtils.isEmpty(connectionInfo.getClientHomeId())) {
-                xml.addAttribute(RegistryConstants.ATTR_HOME, connectionInfo.getClientHomeId());
-            }
-            if (connectionInfo.getConnectionType() != null) {
-                xml.addAttribute(RegistryConstants.ATTR_TYPE, connectionInfo.getConnectionType().getId());
-            }
-            if (connectionInfo.getConnectionColor() != null) {
-                xml.addAttribute(RegistryConstants.ATTR_COLOR, connectionInfo.getConnectionColor());
-            }
-            // Save other
-            if (connectionInfo.getKeepAliveInterval() > 0) {
-                xml.addAttribute(RegistryConstants.ATTR_KEEP_ALIVE, connectionInfo.getKeepAliveInterval());
-            }
-
-            for (Map.Entry<String, String> entry : connectionInfo.getProperties().entrySet()) {
-                xml.startElement(RegistryConstants.TAG_PROPERTY);
-                xml.addAttribute(RegistryConstants.ATTR_NAME, CommonUtils.toString(entry.getKey()));
-                xml.addAttribute(RegistryConstants.ATTR_VALUE, CommonUtils.toString(entry.getValue()));
-                xml.endElement();
-            }
-            for (Map.Entry<String, String> entry : connectionInfo.getProviderProperties().entrySet()) {
-                xml.startElement(RegistryConstants.TAG_PROVIDER_PROPERTY);
-                xml.addAttribute(RegistryConstants.ATTR_NAME, CommonUtils.toString(entry.getKey()));
-                xml.addAttribute(RegistryConstants.ATTR_VALUE, CommonUtils.toString(entry.getValue()));
-                xml.endElement();
-            }
-
-            // Save events
-            for (DBPConnectionEventType eventType : connectionInfo.getDeclaredEvents()) {
-                DBRShellCommand command = connectionInfo.getEvent(eventType);
-                xml.startElement(RegistryConstants.TAG_EVENT);
-                xml.addAttribute(RegistryConstants.ATTR_TYPE, eventType.name());
-                xml.addAttribute(RegistryConstants.ATTR_ENABLED, command.isEnabled());
-                xml.addAttribute(RegistryConstants.ATTR_SHOW_PANEL, command.isShowProcessPanel());
-                xml.addAttribute(RegistryConstants.ATTR_WAIT_PROCESS, command.isWaitProcessFinish());
-                if (command.isWaitProcessFinish()) {
-                    xml.addAttribute(RegistryConstants.ATTR_WAIT_PROCESS_TIMEOUT, command.getWaitProcessTimeoutMs());
-                }
-                xml.addAttribute(RegistryConstants.ATTR_TERMINATE_AT_DISCONNECT, command.isTerminateAtDisconnect());
-                xml.addAttribute(RegistryConstants.ATTR_PAUSE_AFTER_EXECUTE, command.getPauseAfterExecute());
-                if (!CommonUtils.isEmpty(command.getWorkingDirectory())) {
-                    xml.addAttribute(RegistryConstants.ATTR_WORKING_DIRECTORY, command.getWorkingDirectory());
-                }
-                xml.addText(command.getCommand());
-                xml.endElement();
-            }
-            // Save network handlers' configurations
-            for (DBWHandlerConfiguration configuration : connectionInfo.getDeclaredHandlers()) {
-                xml.startElement(RegistryConstants.TAG_NETWORK_HANDLER);
-                xml.addAttribute(RegistryConstants.ATTR_TYPE, configuration.getType().name());
-                xml.addAttribute(RegistryConstants.ATTR_ID, CommonUtils.notEmpty(configuration.getId()));
-                xml.addAttribute(RegistryConstants.ATTR_ENABLED, configuration.isEnabled());
-                xml.addAttribute(RegistryConstants.ATTR_SAVE_PASSWORD, configuration.isSavePassword());
-                if (!CommonUtils.isEmpty(configuration.getUserName())) {
-                    saveSecuredCredentials(
-                        xml,
-                        dataSource,
-                        "network/" + configuration.getId(),
-                        configuration.getUserName(),
-                        configuration.isSavePassword() ? configuration.getPassword() : null);
-                }
-                for (Map.Entry<String, String> entry : configuration.getProperties().entrySet()) {
-                    if (CommonUtils.isEmpty(entry.getValue())) {
-                        continue;
-                    }
-                    xml.startElement(RegistryConstants.TAG_PROPERTY);
-                    xml.addAttribute(RegistryConstants.ATTR_NAME, entry.getKey());
-                    xml.addAttribute(RegistryConstants.ATTR_VALUE, CommonUtils.notEmpty(entry.getValue()));
-                    xml.endElement();
-                }
-                xml.endElement();
-            }
-
-            // Save bootstrap info
-            {
-                DBPConnectionBootstrap bootstrap = connectionInfo.getBootstrap();
-                if (bootstrap.hasData()) {
-                    xml.startElement(RegistryConstants.TAG_BOOTSTRAP);
-                    if (bootstrap.getDefaultAutoCommit() != null) {
-                        xml.addAttribute(RegistryConstants.ATTR_AUTOCOMMIT, bootstrap.getDefaultAutoCommit());
-                    }
-                    if (bootstrap.getDefaultTransactionIsolation() != null) {
-                        xml.addAttribute(RegistryConstants.ATTR_TXN_ISOLATION, bootstrap.getDefaultTransactionIsolation());
-                    }
-                    if (!CommonUtils.isEmpty(bootstrap.getDefaultObjectName())) {
-                        xml.addAttribute(RegistryConstants.ATTR_DEFAULT_OBJECT, bootstrap.getDefaultObjectName());
-                    }
-                    if (bootstrap.isIgnoreErrors()) {
-                        xml.addAttribute(RegistryConstants.ATTR_IGNORE_ERRORS, true);
-                    }
-                    for (String query : bootstrap.getInitQueries()) {
-                        xml.startElement(RegistryConstants.TAG_QUERY);
-                        xml.addText(query);
-                        xml.endElement();
-                    }
-                    xml.endElement();
-                }
-            }
-
-            xml.endElement();
-        }
-
-        {
-            // Filters
-            Collection<FilterMapping> filterMappings = dataSource.getObjectFilters();
-            if (!CommonUtils.isEmpty(filterMappings)) {
-                xml.startElement(RegistryConstants.TAG_FILTERS);
-                for (FilterMapping filter : filterMappings) {
-                    if (filter.defaultFilter != null && !filter.defaultFilter.isEmpty()) {
-                        saveObjectFiler(xml, filter.typeName, null, filter.defaultFilter);
-                    }
-                    for (Map.Entry<String,DBSObjectFilter> cf : filter.customFilters.entrySet()) {
-                        if (!cf.getValue().isEmpty()) {
-                            saveObjectFiler(xml, filter.typeName, cf.getKey(), cf.getValue());
-                        }
-                    }
-                }
-                xml.endElement();
-            }
-        }
-
-        // Virtual model
-        if (dataSource.getVirtualModel().hasValuableData()) {
-            xml.startElement(RegistryConstants.TAG_VIRTUAL_META_DATA);
-            dataSource.getVirtualModel().serialize(xml);
-            xml.endElement();
-        }
-
-        // Preferences
-        {
-            // Save only properties who are differs from default values
-            SimplePreferenceStore prefStore = dataSource.getPreferenceStore();
-            for (String propName : prefStore.preferenceNames()) {
-                String propValue = prefStore.getString(propName);
-                String defValue = prefStore.getDefaultString(propName);
-                if (propValue == null || CommonUtils.equalObjects(propValue, defValue)) {
-                    continue;
-                }
-                xml.startElement(RegistryConstants.TAG_CUSTOM_PROPERTY);
-                xml.addAttribute(RegistryConstants.ATTR_NAME, propName);
-                xml.addAttribute(RegistryConstants.ATTR_VALUE, propValue);
-                xml.endElement();
-            }
-        }
-
-        if (!CommonUtils.isEmpty(dataSource.getDescription())) {
-            xml.startElement(RegistryConstants.TAG_DESCRIPTION);
-            xml.addText(dataSource.getDescription());
-            xml.endElement();
-        }
-        xml.endElement();
-    }
-
-    private void saveSecuredCredentials(XMLBuilder xml, DataSourceDescriptor dataSource, String subNode, String userName, String password) throws IOException {
-        boolean saved = false;
-        final DBASecureStorage secureStorage = getPlatform().getSecureStorage();
-        {
-            try {
-                ISecurePreferences prefNode = dataSource.getSecurePreferences();
-                if (!secureStorage.useSecurePreferences()) {
-                    prefNode.removeNode();
-                } else {
-                    if (subNode != null) {
-                        for (String nodeName : subNode.split("/")) {
-                            prefNode = prefNode.node(nodeName);
-                        }
-                    }
-                    prefNode.put("name", dataSource.getName(), false);
-
-                    if (!CommonUtils.isEmpty(userName)) {
-                        prefNode.put(RegistryConstants.ATTR_USER, userName, true);
-                        saved = true;
-                    } else {
-                        prefNode.remove(RegistryConstants.ATTR_USER);
-                    }
-                    if (!CommonUtils.isEmpty(password)) {
-                        prefNode.put(RegistryConstants.ATTR_PASSWORD, password, true);
-                        saved = true;
-                    } else {
-                        prefNode.remove(RegistryConstants.ATTR_PASSWORD);
-                    }
-                }
-            } catch (Throwable e) {
-                log.error("Can't save password in secure storage", e);
-            }
-        }
-        if (!saved) {
-            try {
-                if (!CommonUtils.isEmpty(userName)) {
-                    xml.addAttribute(RegistryConstants.ATTR_USER, CommonUtils.notEmpty(userName));
-                }
-                if (!CommonUtils.isEmpty(password)) {
-                    xml.addAttribute(RegistryConstants.ATTR_PASSWORD, ENCRYPTOR.encrypt(password));
-                }
-            } catch (EncryptionException e) {
-                log.error("Error encrypting password", e);
-            }
-        }
-    }
-
     private void clearSecuredPasswords(DataSourceDescriptor dataSource) {
         try {
             dataSource.getSecurePreferences().removeNode();
@@ -957,440 +855,36 @@ public class DataSourceRegistry implements DBPDataSourceRegistry
         }
     }
 
-    @Nullable
-    private static String decryptPassword(String encPassword)
-    {
-        if (!CommonUtils.isEmpty(encPassword)) {
-            try {
-                encPassword = ENCRYPTOR.decrypt(encPassword);
-            }
-            catch (Throwable e) {
-                // could not decrypt - use as is
-                encPassword = null;
-            }
-        }
-        return encPassword;
-    }
-
-    private void saveObjectFiler(XMLBuilder xml, String typeName, String objectID, DBSObjectFilter filter) throws IOException
-    {
-        xml.startElement(RegistryConstants.TAG_FILTER);
-        if (typeName != null) {
-            xml.addAttribute(RegistryConstants.ATTR_TYPE, typeName);
-        }
-        if (objectID != null) {
-            xml.addAttribute(RegistryConstants.ATTR_ID, objectID);
-        }
-        if (!CommonUtils.isEmpty(filter.getName())) {
-            xml.addAttribute(RegistryConstants.ATTR_NAME, filter.getName());
-        }
-        if (!CommonUtils.isEmpty(filter.getDescription())) {
-            xml.addAttribute(RegistryConstants.ATTR_DESCRIPTION, filter.getDescription());
-        }
-        if (!filter.isEnabled()) {
-            xml.addAttribute(RegistryConstants.ATTR_ENABLED, false);
-        }
-        for (String include : CommonUtils.safeCollection(filter.getInclude())) {
-            xml.startElement(RegistryConstants.TAG_INCLUDE);
-            xml.addAttribute(RegistryConstants.ATTR_NAME, include);
-            xml.endElement();
-        }
-        for (String exclude : CommonUtils.safeCollection(filter.getExclude())) {
-            xml.startElement(RegistryConstants.TAG_EXCLUDE);
-            xml.addAttribute(RegistryConstants.ATTR_NAME, exclude);
-            xml.endElement();
-        }
-        xml.endElement();
-    }
-
     @Override
-    public IProject getProject()
-    {
+    public DBPProject getProject() {
         return project;
     }
 
-    private static class ParseResults {
-        Set<DataSourceDescriptor> updatedDataSources = new HashSet<>();
-        Set<DataSourceDescriptor> addedDataSources = new HashSet<>();
+    @Override
+    public String toString() {
+        return project.getName() + " (" + getClass().getSimpleName() + ")";
     }
 
-    private class DataSourcesParser implements SAXListener
-    {
-        DataSourceDescriptor curDataSource;
-        DataSourceOrigin origin;
-        boolean refresh;
-        boolean isDescription = false;
-        DBRShellCommand curCommand = null;
-        private DBWHandlerConfiguration curNetworkHandler;
-        private DBSObjectFilter curFilter;
-        private StringBuilder curQuery;
-        private ParseResults parseResults;
-        private boolean passwordReadCanceled = false;
-
-        private DataSourcesParser(DataSourceOrigin origin, boolean refresh, ParseResults parseResults)
-        {
-            this.origin = origin;
-            this.refresh = refresh;
-            this.parseResults = parseResults;
-        }
-
-        @Override
-        public void saxStartElement(SAXReader reader, String namespaceURI, String localName, Attributes atts)
-            throws XMLException
-        {
-            isDescription = false;
-            curCommand = null;
-            switch (localName) {
-                case RegistryConstants.TAG_FOLDER: {
-                    String name = atts.getValue(RegistryConstants.ATTR_NAME);
-                    String description = atts.getValue(RegistryConstants.ATTR_DESCRIPTION);
-                    String parentFolder = atts.getValue(RegistryConstants.ATTR_PARENT);
-                    DataSourceFolder parent = parentFolder == null ? null : findFolderByPath(parentFolder, true);
-                    DataSourceFolder folder = parent == null ? findFolderByPath(name, true) : parent.getChild(name);
-                    if (folder == null) {
-                        folder = new DataSourceFolder(DataSourceRegistry.this, parent, name, description);
-                        dataSourceFolders.add(folder);
-                    } else {
-                        folder.setDescription(description);
-                    }
-                    break;
-                }
-                case RegistryConstants.TAG_DATA_SOURCE: {
-                    String name = atts.getValue(RegistryConstants.ATTR_NAME);
-                    String id = atts.getValue(RegistryConstants.ATTR_ID);
-                    if (id == null) {
-                        // Support of old version without ID
-                        id = name;
-                    }
-                    String providerId = atts.getValue(RegistryConstants.ATTR_PROVIDER);
-                    DataSourceProviderDescriptor provider = DataSourceProviderRegistry.getInstance().getDataSourceProvider(providerId);
-                    if (provider == null) {
-                        log.warn("Can't find datasource provider " + providerId + " for datasource '" + name + "'");
-                        curDataSource = null;
-                        reader.setListener(EMPTY_LISTENER);
-                        return;
-                    }
-                    String driverId = atts.getValue(RegistryConstants.ATTR_DRIVER);
-                    DriverDescriptor driver = provider.getDriver(driverId);
-                    if (driver == null) {
-                        log.warn("Can't find driver " + driverId + " in datasource provider " + provider.getId() + " for datasource '" + name + "'. Create new driver");
-                        driver = provider.createDriver(driverId);
-                        provider.addDriver(driver);
-                    }
-                    curDataSource = getDataSource(id);
-                    boolean newDataSource = (curDataSource == null);
-                    if (newDataSource) {
-                        curDataSource = new DataSourceDescriptor(
-                            DataSourceRegistry.this,
-                            origin,
-                            id,
-                            driver,
-                            new DBPConnectionConfiguration());
-                    } else {
-                        // Clean settings - they have to be loaded later by parser
-                        curDataSource.getConnectionConfiguration().setProperties(Collections.emptyMap());
-                        curDataSource.getConnectionConfiguration().setHandlers(Collections.emptyList());
-                        curDataSource.clearFilters();
-                    }
-                    curDataSource.setName(name);
-                    curDataSource.setSavePassword(CommonUtils.getBoolean(atts.getValue(RegistryConstants.ATTR_SAVE_PASSWORD)));
-                    curDataSource.setShowSystemObjects(CommonUtils.getBoolean(atts.getValue(RegistryConstants.ATTR_SHOW_SYSTEM_OBJECTS)));
-                    curDataSource.setShowUtilityObjects(CommonUtils.getBoolean(atts.getValue(RegistryConstants.ATTR_SHOW_UTIL_OBJECTS)));
-                    curDataSource.setConnectionReadOnly(CommonUtils.getBoolean(atts.getValue(RegistryConstants.ATTR_READ_ONLY)));
-                    final String folderPath = atts.getValue(RegistryConstants.ATTR_FOLDER);
-                    if (folderPath != null) {
-                        curDataSource.setFolder(findFolderByPath(folderPath, true));
-                    }
-                    curDataSource.setLockPasswordHash(atts.getValue(RegistryConstants.ATTR_LOCK_PASSWORD));
-                    {
-                        // Legacy filter settings
-                        String legacyCatalogFilter = atts.getValue(RegistryConstants.ATTR_FILTER_CATALOG);
-                        if (!CommonUtils.isEmpty(legacyCatalogFilter)) {
-                            curDataSource.updateObjectFilter(DBSCatalog.class.getName(), null, new DBSObjectFilter(legacyCatalogFilter, null));
-                        }
-                        String legacySchemaFilter = atts.getValue(RegistryConstants.ATTR_FILTER_SCHEMA);
-                        if (!CommonUtils.isEmpty(legacySchemaFilter)) {
-                            curDataSource.updateObjectFilter(DBSSchema.class.getName(), null, new DBSObjectFilter(legacySchemaFilter, null));
-                        }
-                    }
-                    if (newDataSource) {
-                        dataSources.add(curDataSource);
-                        parseResults.addedDataSources.add(curDataSource);
-                    } else {
-                        parseResults.updatedDataSources.add(curDataSource);
-                    }
-                    break;
-                }
-                case RegistryConstants.TAG_CONNECTION:
-                    if (curDataSource != null) {
-                        DriverDescriptor driver = curDataSource.getDriver();
-                        if (CommonUtils.isEmpty(driver.getName())) {
-                            // Broken driver - seems to be just created
-                            driver.setName(atts.getValue(RegistryConstants.ATTR_URL));
-                            driver.setDriverClassName("java.sql.Driver");
-                        }
-                        DBPConnectionConfiguration config = curDataSource.getConnectionConfiguration();
-                        config.setHostName(atts.getValue(RegistryConstants.ATTR_HOST));
-                        config.setHostPort(atts.getValue(RegistryConstants.ATTR_PORT));
-                        config.setServerName(atts.getValue(RegistryConstants.ATTR_SERVER));
-                        config.setDatabaseName(atts.getValue(RegistryConstants.ATTR_DATABASE));
-                        config.setUrl(atts.getValue(RegistryConstants.ATTR_URL));
-                        if (!passwordReadCanceled) {
-                            final String[] creds = readSecuredCredentials(atts, curDataSource, null);
-                            config.setUserName(creds[0]);
-                            if (curDataSource.isSavePassword()) {
-                                config.setUserPassword(creds[1]);
-                            }
-                        }
-                        config.setClientHomeId(atts.getValue(RegistryConstants.ATTR_HOME));
-                        config.setConnectionType(
-                            DataSourceProviderRegistry.getInstance().getConnectionType(
-                                CommonUtils.toString(atts.getValue(RegistryConstants.ATTR_TYPE)),
-                                DBPConnectionType.DEFAULT_TYPE)
-                        );
-                        String colorValue = atts.getValue(RegistryConstants.ATTR_COLOR);
-                        if (!CommonUtils.isEmpty(colorValue)) {
-                            config.setConnectionColor(colorValue);
-                        }
-                        String keepAlive = atts.getValue(RegistryConstants.ATTR_KEEP_ALIVE);
-                        if (!CommonUtils.isEmpty(keepAlive)) {
-                            try {
-                                config.setKeepAliveInterval(Integer.parseInt(keepAlive));
-                            } catch (NumberFormatException e) {
-                                log.warn("Bad keep-alive interval value", e);
-                            }
-                        }
-                    }
-                    break;
-                case RegistryConstants.TAG_BOOTSTRAP:
-                    if (curDataSource != null) {
-                        DBPConnectionConfiguration config = curDataSource.getConnectionConfiguration();
-                        if (atts.getValue(RegistryConstants.ATTR_AUTOCOMMIT) != null) {
-                            config.getBootstrap().setDefaultAutoCommit(CommonUtils.toBoolean(atts.getValue(RegistryConstants.ATTR_AUTOCOMMIT)));
-                        }
-                        if (atts.getValue(RegistryConstants.ATTR_TXN_ISOLATION) != null) {
-                            config.getBootstrap().setDefaultTransactionIsolation(CommonUtils.toInt(atts.getValue(RegistryConstants.ATTR_TXN_ISOLATION)));
-                        }
-                        if (!CommonUtils.isEmpty(atts.getValue(RegistryConstants.ATTR_DEFAULT_OBJECT))) {
-                            config.getBootstrap().setDefaultObjectName(atts.getValue(RegistryConstants.ATTR_DEFAULT_OBJECT));
-                        }
-                        if (atts.getValue(RegistryConstants.ATTR_IGNORE_ERRORS) != null) {
-                            config.getBootstrap().setIgnoreErrors(CommonUtils.toBoolean(atts.getValue(RegistryConstants.ATTR_IGNORE_ERRORS)));
-                        }
-                    }
-                    break;
-                case RegistryConstants.TAG_QUERY:
-                    curQuery = new StringBuilder();
-                    break;
-                case RegistryConstants.TAG_PROPERTY:
-                    if (curNetworkHandler != null) {
-                        curNetworkHandler.getProperties().put(
-                            atts.getValue(RegistryConstants.ATTR_NAME),
-                            atts.getValue(RegistryConstants.ATTR_VALUE));
-                    } else if (curDataSource != null) {
-                        final String propName = atts.getValue(RegistryConstants.ATTR_NAME);
-                        final String propValue = atts.getValue(RegistryConstants.ATTR_VALUE);
-                        if (propName != null) {
-                            if (propName.startsWith(DBConstants.INTERNAL_PROP_PREFIX)) {
-                                // Backward compatibility - internal properties are provider properties
-                                curDataSource.getConnectionConfiguration().setProviderProperty(propName, propValue);
-                            } else {
-                                curDataSource.getConnectionConfiguration().setProperty(propName, propValue);
-                            }
-                        }
-                    }
-                    break;
-                case RegistryConstants.TAG_PROVIDER_PROPERTY:
-                    if (curDataSource != null) {
-                        curDataSource.getConnectionConfiguration().setProviderProperty(
-                            atts.getValue(RegistryConstants.ATTR_NAME),
-                            atts.getValue(RegistryConstants.ATTR_VALUE));
-                    }
-                    break;
-                case RegistryConstants.TAG_EVENT:
-                    if (curDataSource != null) {
-                        DBPConnectionEventType eventType = DBPConnectionEventType.valueOf(atts.getValue(RegistryConstants.ATTR_TYPE));
-                        curCommand = new DBRShellCommand("");
-                        curCommand.setEnabled(CommonUtils.getBoolean(atts.getValue(RegistryConstants.ATTR_ENABLED)));
-                        curCommand.setShowProcessPanel(CommonUtils.getBoolean(atts.getValue(RegistryConstants.ATTR_SHOW_PANEL)));
-                        curCommand.setWaitProcessFinish(CommonUtils.getBoolean(atts.getValue(RegistryConstants.ATTR_WAIT_PROCESS)));
-                        if (curCommand.isWaitProcessFinish()) {
-                            String timeoutString = atts.getValue(RegistryConstants.ATTR_WAIT_PROCESS_TIMEOUT);
-                            int timeoutMs = CommonUtils.toInt(timeoutString, DBRShellCommand.WAIT_PROCESS_TIMEOUT_FOREVER);
-                            curCommand.setWaitProcessTimeoutMs(timeoutMs);
-                        }
-                        curCommand.setTerminateAtDisconnect(CommonUtils.getBoolean(atts.getValue(RegistryConstants.ATTR_TERMINATE_AT_DISCONNECT)));
-                        curCommand.setPauseAfterExecute(CommonUtils.toInt(atts.getValue(RegistryConstants.ATTR_PAUSE_AFTER_EXECUTE)));
-                        curCommand.setWorkingDirectory(atts.getValue(RegistryConstants.ATTR_WORKING_DIRECTORY));
-                        curDataSource.getConnectionConfiguration().setEvent(eventType, curCommand);
-                    }
-                    break;
-                case RegistryConstants.TAG_CUSTOM_PROPERTY:
-                    if (curDataSource != null) {
-                        String propName = atts.getValue(RegistryConstants.ATTR_NAME);
-                        String propValue = atts.getValue(RegistryConstants.ATTR_VALUE);
-                        // TODO: remove bootstrap preferences later. PResent for config backward compatibility
-                        switch (propName) {
-                            case DEFAULT_AUTO_COMMIT:
-                                curDataSource.getConnectionConfiguration().getBootstrap().setDefaultAutoCommit(CommonUtils.toBoolean(propValue));
-                                break;
-                            case DEFAULT_ISOLATION:
-                                curDataSource.getConnectionConfiguration().getBootstrap().setDefaultTransactionIsolation(CommonUtils.toInt(propValue));
-                                break;
-                            case DEFAULT_ACTIVE_OBJECT:
-                                if (!CommonUtils.isEmpty(propValue)) {
-                                    curDataSource.getConnectionConfiguration().getBootstrap().setDefaultObjectName(propValue);
-                                }
-                                break;
-                            default:
-                                curDataSource.getPreferenceStore().getProperties().put(propName, propValue);
-                                break;
-                        }
-                    }
-                    break;
-                case RegistryConstants.TAG_NETWORK_HANDLER:
-                    if (curDataSource != null) {
-                        String handlerId = atts.getValue(RegistryConstants.ATTR_ID);
-                        NetworkHandlerDescriptor handlerDescriptor = NetworkHandlerRegistry.getInstance().getDescriptor(handlerId);
-                        if (handlerDescriptor == null) {
-                            log.warn("Can't find network handler '" + handlerId + "'");
-                            reader.setListener(EMPTY_LISTENER);
-                            return;
-                        }
-                        curNetworkHandler = new DBWHandlerConfiguration(handlerDescriptor, curDataSource.getDriver());
-                        curNetworkHandler.setEnabled(CommonUtils.getBoolean(atts.getValue(RegistryConstants.ATTR_ENABLED)));
-                        curNetworkHandler.setSavePassword(CommonUtils.getBoolean(atts.getValue(RegistryConstants.ATTR_SAVE_PASSWORD)));
-                        if (!passwordReadCanceled) {
-                            final String[] creds = readSecuredCredentials(atts, curDataSource, "network/" + handlerId);
-                            curNetworkHandler.setUserName(creds[0]);
-                            if (curNetworkHandler.isSavePassword()) {
-                                curNetworkHandler.setPassword(creds[1]);
-                            }
-                        }
-
-                        curDataSource.getConnectionConfiguration().addHandler(curNetworkHandler);
-                    }
-                    break;
-                case RegistryConstants.TAG_FILTER:
-                    if (curDataSource != null) {
-                        String typeName = atts.getValue(RegistryConstants.ATTR_TYPE);
-                        String objectID = atts.getValue(RegistryConstants.ATTR_ID);
-                        if (typeName != null) {
-                            curFilter = new DBSObjectFilter();
-                            curFilter.setName(atts.getValue(RegistryConstants.ATTR_NAME));
-                            curFilter.setDescription(atts.getValue(RegistryConstants.ATTR_DESCRIPTION));
-                            curFilter.setEnabled(CommonUtils.getBoolean(atts.getValue(RegistryConstants.ATTR_ENABLED), true));
-                            curDataSource.updateObjectFilter(typeName, objectID, curFilter);
-
-                        }
-                    } else {
-                        curFilter = new DBSObjectFilter();
-                        curFilter.setName(atts.getValue(RegistryConstants.ATTR_NAME));
-                        curFilter.setDescription(atts.getValue(RegistryConstants.ATTR_DESCRIPTION));
-                        curFilter.setEnabled(CommonUtils.getBoolean(atts.getValue(RegistryConstants.ATTR_ENABLED), true));
-                        savedFilters.add(curFilter);
-                    }
-                    break;
-                case RegistryConstants.TAG_INCLUDE:
-                    if (curFilter != null) {
-                        curFilter.addInclude(CommonUtils.notEmpty(atts.getValue(RegistryConstants.ATTR_NAME)));
-                    }
-                    break;
-                case RegistryConstants.TAG_EXCLUDE:
-                    if (curFilter != null) {
-                        curFilter.addExclude(CommonUtils.notEmpty(atts.getValue(RegistryConstants.ATTR_NAME)));
-                    }
-                    break;
-                case RegistryConstants.TAG_DESCRIPTION:
-                    isDescription = true;
-                    break;
-                case RegistryConstants.TAG_VIRTUAL_META_DATA:
-                    if (curDataSource != null) {
-                        reader.setListener(curDataSource.getVirtualModel().getModelParser());
-                    }
-                    break;
-            }
-        }
-
-        @Override
-        public void saxText(SAXReader reader, String data)
-            throws XMLException
-        {
-            if (isDescription && curDataSource != null) {
-                curDataSource.setDescription(data);
-            } else if (curCommand != null) {
-                curCommand.setCommand(data);
-                curCommand = null;
-            } else if (curQuery != null) {
-                curQuery.append(data);
-            }
-        }
-
-        @Override
-        public void saxEndElement(SAXReader reader, String namespaceURI, String localName)
-            throws XMLException
-        {
-            switch (localName) {
-                case RegistryConstants.TAG_DATA_SOURCE:
-                    curDataSource = null;
-                    break;
-                case RegistryConstants.TAG_NETWORK_HANDLER:
-                    curNetworkHandler = null;
-                    break;
-                case RegistryConstants.TAG_FILTER:
-                    curFilter = null;
-                    break;
-                case RegistryConstants.TAG_QUERY:
-                    if (curDataSource != null && curQuery != null && curQuery.length() > 0) {
-                        curDataSource.getConnectionConfiguration().getBootstrap().getInitQueries().add(curQuery.toString());
-                        curQuery = null;
-                    }
-                    break;
-            }
-            isDescription = false;
-        }
-
-        private String[] readSecuredCredentials(Attributes xmlAttrs, DataSourceDescriptor dataSource, String subNode) {
-            String[] creds = new String[2];
-            final DBASecureStorage secureStorage = getPlatform().getSecureStorage();
-            {
-                try {
-                    if (secureStorage.useSecurePreferences()) {
-                        ISecurePreferences prefNode = dataSource.getSecurePreferences();
-                        if (subNode != null) {
-                            for (String nodeName : subNode.split("/")) {
-                                prefNode = prefNode.node(nodeName);
-                            }
-                        }
-                        creds[0] = prefNode.get(RegistryConstants.ATTR_USER, null);
-                        creds[1] = prefNode.get(RegistryConstants.ATTR_PASSWORD, null);
-                    }
-                } catch (Throwable e) {
-                    // Most likely user canceled master password enter of failed by some other reason.
-                    // Anyhow we won't try it again
-                    log.error("Can't read password from secure storage", e);
-                    passwordReadCanceled = true;
-                }
-            }
-            if (CommonUtils.isEmpty(creds[0])) {
-                creds[0] = xmlAttrs.getValue(RegistryConstants.ATTR_USER);
-            }
-            if (CommonUtils.isEmpty(creds[1])) {
-                final String encPassword = xmlAttrs.getValue(RegistryConstants.ATTR_PASSWORD);
-                creds[1] = CommonUtils.isEmpty(encPassword) ? null : decryptPassword(encPassword);
-            }
-            return creds;
-        }
-
+    static class ParseResults {
+        Set<DBPDataSourceContainer> updatedDataSources = new LinkedHashSet<>();
+        Set<DBPDataSourceContainer> addedDataSources = new LinkedHashSet<>();
     }
 
     private class DisconnectTask implements DBRRunnableWithProgress {
         boolean disconnected;
+
         @Override
         public void run(DBRProgressMonitor monitor) throws InvocationTargetException, InterruptedException {
+            monitor = new ProxyProgressMonitor(monitor) {
+                @Override
+                public boolean isCanceled() {
+                    // It is never canceled because we call DisconnectTask on shutdown when all tasks are canceled
+                    return false;
+                }
+            };
             List<DataSourceDescriptor> dsSnapshot;
             synchronized (dataSources) {
-                dsSnapshot = CommonUtils.copyList(dataSources);
+                dsSnapshot = CommonUtils.copyList(dataSources.values());
             }
             monitor.beginTask("Disconnect all databases", dsSnapshot.size());
             try {
@@ -1412,6 +906,20 @@ public class DataSourceRegistry implements DBPDataSourceRegistry
             } finally {
                 monitor.done();
             }
+        }
+    }
+
+    private class ConfigSaver extends AbstractJob {
+        ConfigSaver() {
+            super("Datasource configuration save");
+        }
+        @Override
+        protected IStatus run(DBRProgressMonitor monitor) {
+            synchronized (DataSourceRegistry.this) {
+                //log.debug("Save column config " + System.currentTimeMillis());
+                saveDataSources();
+            }
+            return Status.OK_STATUS;
         }
     }
 

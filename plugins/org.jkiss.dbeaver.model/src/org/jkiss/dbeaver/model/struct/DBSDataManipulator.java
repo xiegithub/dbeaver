@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,6 +27,7 @@ import org.jkiss.dbeaver.model.exec.DBCSession;
 import org.jkiss.dbeaver.model.exec.DBCStatistics;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * Data manipulator.
@@ -45,8 +46,7 @@ public interface DBSDataManipulator extends DBSDataContainer {
         @NotNull
         DBCStatistics execute(@NotNull DBCSession session) throws DBCException;
 
-        @NotNull
-        void generatePersistActions(@NotNull DBCSession session, @NotNull List<DBEPersistAction> actions) throws DBCException;
+        void generatePersistActions(@NotNull DBCSession session, @NotNull List<DBEPersistAction> actions, Map<String, Object> options) throws DBCException;
 
         void close();
     }

@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,12 +19,20 @@ package org.jkiss.dbeaver.ui.editors.xml;
 import org.eclipse.jface.text.formatter.ContextBasedFormattingStrategy;
 import org.jkiss.dbeaver.Log;
 import org.jkiss.utils.CommonUtils;
+import org.w3c.dom.Document;
+import org.w3c.dom.Node;
+import org.w3c.dom.NodeList;
+import org.xml.sax.InputSource;
 
+import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.transform.OutputKeys;
 import javax.xml.transform.Transformer;
 import javax.xml.transform.TransformerFactory;
+import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.stream.StreamResult;
-import javax.xml.transform.stream.StreamSource;
+import javax.xml.xpath.XPath;
+import javax.xml.xpath.XPathConstants;
+import javax.xml.xpath.XPathFactory;
 import java.io.StringReader;
 import java.io.StringWriter;
 
@@ -51,6 +59,21 @@ public class XMLFormattingStrategy extends ContextBasedFormattingStrategy
             return content;
         }
         try {
+            Document document = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(new InputSource(new StringReader(content)));
+
+            {
+                // Remove whitespaces between tags
+                XPath xPath = XPathFactory.newInstance().newXPath();
+                NodeList nodeList = (NodeList) xPath.evaluate("//text()[normalize-space()='']",
+                    document,
+                    XPathConstants.NODESET);
+
+                for (int i = 0; i < nodeList.getLength(); ++i) {
+                    Node node = nodeList.item(i);
+                    node.getParentNode().removeChild(node);
+                }
+            }
+
             TransformerFactory transformerFactory = TransformerFactory.newInstance();
             transformerFactory.setAttribute("indent-number", 2);
             Transformer transformer = transformerFactory.newTransformer();
@@ -59,7 +82,8 @@ public class XMLFormattingStrategy extends ContextBasedFormattingStrategy
                 transformer.setOutputProperty(OutputKeys.OMIT_XML_DECLARATION, "yes");
             }
 
-            StreamSource source = new StreamSource(new StringReader(content));
+            //StreamSource source = new StreamSource(new StringReader(content));
+            DOMSource source = new DOMSource(document);
             StreamResult result = new StreamResult(new StringWriter());
             transformer.transform(source, result);
             return result.getWriter().toString();

@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@
 
 package org.jkiss.dbeaver.model.sql.format.tokenized;
 
+import org.jkiss.dbeaver.model.DBPKeywordType;
 import org.jkiss.dbeaver.model.sql.format.SQLFormatterConfiguration;
 import org.jkiss.utils.ArrayUtils;
 import org.jkiss.utils.CommonUtils;
@@ -45,7 +46,7 @@ class SQLTokensParser {
         this.configuration = configuration;
         this.structSeparator = configuration.getSyntaxManager().getStructSeparator();
         this.catalogSeparator = configuration.getSyntaxManager().getCatalogSeparator();
-        this.quoteStrings = configuration.getSyntaxManager().getQuoteStrings();
+        this.quoteStrings = configuration.getSyntaxManager().getIdentifierQuoteStrings();
         this.singleLineComments = configuration.getSyntaxManager().getDialect().getSingleLineComments();
         this.singleLineCommentStart = new char[this.singleLineComments.length];
         for (int i = 0; i < singleLineComments.length; i++) {
@@ -191,7 +192,7 @@ class SQLTokensParser {
                 }
                 return new FormatterToken(TokenType.COMMAND, word + s.toString(), start_pos);
             }
-            if (configuration.getSyntaxManager().getDialect().getKeywordType(word) != null) {
+            if (configuration.getSyntaxManager().getDialect().getKeywordType(word) == DBPKeywordType.KEYWORD) {
                 return new FormatterToken(TokenType.KEYWORD, word, start_pos);
             }
             return new FormatterToken(TokenType.NAME, word, start_pos);

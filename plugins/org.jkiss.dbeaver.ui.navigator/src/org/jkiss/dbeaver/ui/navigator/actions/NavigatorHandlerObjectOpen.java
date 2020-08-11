@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -34,17 +34,13 @@ import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
 import org.jkiss.dbeaver.DBException;
 import org.jkiss.dbeaver.Log;
-import org.jkiss.dbeaver.ModelPreferences;
 import org.jkiss.dbeaver.model.DBPDataSourceContainer;
 import org.jkiss.dbeaver.model.DBUtils;
 import org.jkiss.dbeaver.model.edit.DBEObjectEditor;
 import org.jkiss.dbeaver.model.navigator.*;
-import org.jkiss.dbeaver.model.struct.DBSInstance;
-import org.jkiss.dbeaver.model.struct.DBSInstanceLazy;
 import org.jkiss.dbeaver.model.struct.DBSObject;
 import org.jkiss.dbeaver.model.struct.DBSObjectContainer;
 import org.jkiss.dbeaver.runtime.DBWorkbench;
-import org.jkiss.dbeaver.runtime.TasksJob;
 import org.jkiss.dbeaver.runtime.ui.UIServiceConnections;
 import org.jkiss.dbeaver.runtime.ui.UIServiceSQL;
 import org.jkiss.dbeaver.ui.IRefreshablePart;
@@ -69,6 +65,8 @@ public class NavigatorHandlerObjectOpen extends NavigatorHandlerObjectBase imple
 
     private static final Log log = Log.getLog(NavigatorHandlerObjectOpen.class);
 
+    private static final int MAX_OBJECT_SIZE_NO_CONFIRM = 3;
+
     @Override
     public Object execute(ExecutionEvent event) throws ExecutionException {
         if (UIUtils.isInDialog()) {
@@ -79,6 +77,12 @@ public class NavigatorHandlerObjectOpen extends NavigatorHandlerObjectBase imple
 
         if (selection instanceof IStructuredSelection) {
             final IStructuredSelection structSelection = (IStructuredSelection)selection;
+            if (structSelection.size() > MAX_OBJECT_SIZE_NO_CONFIRM) {
+                if (!UIUtils.confirmAction(HandlerUtil.getActiveShell(event), "Open " + structSelection.size() + " editors",
+                    "You are about to open " + structSelection.size() + " editors. Are you sure?")) {
+                    return null;
+                }
+            }
             for (Iterator<?> iter = structSelection.iterator(); iter.hasNext(); ) {
                 Object element = iter.next();
                 DBNNode node = null;
@@ -97,7 +101,7 @@ public class NavigatorHandlerObjectOpen extends NavigatorHandlerObjectBase imple
                     }
                 }
                 if (node != null) {
-                    NavigatorUtils.openNavigatorNode(node, HandlerUtil.getActiveWorkbenchWindow(event));
+                    NavigatorUtils.openNavigatorNode(node, HandlerUtil.getActiveWorkbenchWindow(event), event.getParameters());
                 }
             }
         }
@@ -181,22 +185,8 @@ public class NavigatorHandlerObjectOpen extends NavigatorHandlerObjectBase imple
                     if (!databaseObject.isPersisted()) {
                         return null;
                     }
-                    if (DBUtils.getDefaultContext(databaseObject, false) == null) {
-                        // Not connected - try to connect
-                        DBSInstance ownerInstance = DBUtils.getObjectOwnerInstance(databaseObject);
-                        if (ownerInstance instanceof DBSInstanceLazy && !((DBSInstanceLazy)ownerInstance).isInstanceConnected()) {
-                            if (!RuntimeUtils.runTask(monitor -> {
-                                try {
-                                    ((DBSInstanceLazy) ownerInstance).checkInstanceConnection(monitor);
-                                } catch (DBException e) {
-                                    throw new InvocationTargetException(e);
-                                }
-                            }, "Initiate instance connection",
-                                dnNode.getDataSourceContainer().getPreferenceStore().getInt(ModelPreferences.CONNECTION_OPEN_TIMEOUT))) {
-                                return null;
-                            }
-                        }
-                        //
+                    if (DBUtils.getOrOpenDefaultContext(databaseObject, false) == null) {
+                        return null;
                     }
 
                     if (selectedNode instanceof DBNDatabaseObject) {
@@ -212,11 +202,7 @@ public class NavigatorHandlerObjectOpen extends NavigatorHandlerObjectBase imple
                     } else {
                         DatabaseNodeEditorInput editorInput = new DatabaseNodeEditorInput(dnNode);
                         if (DBWorkbench.getPlatform().getPreferenceStore().getBoolean(NavigatorPreferences.NAVIGATOR_REFRESH_EDITORS_ON_OPEN)) {
-                            if (databaseObject instanceof DBSObjectContainer) {
-                                // do not auto-refresh object containers (too expensive)
-                            } else {
-                                refreshDatabaseNode(dnNode);
-                            }
+                            refreshDatabaseNode(dnNode);
                         }
                         setInputAttributes(editorInput, defaultPageId, defaultFolderId, attributes);
                         return workbenchWindow.getActivePage().openEditor(
@@ -335,7 +321,8 @@ public class NavigatorHandlerObjectOpen extends NavigatorHandlerObjectBase imple
                         DBEObjectEditor objectManager = DBWorkbench.getPlatform().getEditorsRegistry().getObjectManager(
                             object.getClass(),
                             DBEObjectEditor.class);
-                        actionName = objectManager == null || !objectManager.canEditObject(object) ? UINavigatorMessages.actions_navigator_view : UINavigatorMessages.actions_navigator_edit;
+                        //actionName = objectManager == null || !objectManager.canEditObject(object) ? UINavigatorMessages.actions_navigator_view : UINavigatorMessages.actions_navigator_edit;
+                        actionName = UINavigatorMessages.actions_navigator_view;
                     }
                 }
                 String label;

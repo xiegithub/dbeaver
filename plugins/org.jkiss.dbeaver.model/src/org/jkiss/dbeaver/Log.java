@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,11 +18,13 @@ package org.jkiss.dbeaver;
 
 import org.eclipse.core.runtime.ILog;
 import org.eclipse.core.runtime.IStatus;
+import org.eclipse.core.runtime.Platform;
 import org.eclipse.core.runtime.Status;
 import org.jkiss.dbeaver.bundle.ModelActivator;
 import org.jkiss.dbeaver.utils.GeneralUtils;
 import org.jkiss.utils.ArrayUtils;
 
+import java.io.OutputStream;
 import java.io.PrintStream;
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -44,12 +46,45 @@ public class Log
         } catch (Throwable e) {
             eclipseLog = null;
         }
+
+        quietMode = ArrayUtils.contains(Platform.getApplicationArgs(), "-q");
     }
 
     private final String name;
+    private static ThreadLocal<PrintStream> logWriter = new ThreadLocal<>();
+    private static boolean quietMode;
+    private final boolean doEclipseLog;
 
     public static Log getLog(Class<?> forClass) {
-        return new Log(forClass.getName());
+        return new Log(forClass.getName(), true);
+    }
+
+    public static Log getLog(String name) {
+        return new Log(name, true);
+    }
+
+    public static Log getLog(String name, boolean doEclipseLog) {
+        return new Log(name, doEclipseLog);
+    }
+
+    public static boolean isQuietMode() {
+        return quietMode;
+    }
+
+    public static PrintStream getLogWriter() {
+        return logWriter.get();
+    }
+
+    public static void setLogWriter(OutputStream logWriter) {
+        if (logWriter == null) {
+            Log.logWriter.remove();
+        } else {
+            if (logWriter instanceof PrintStream) {
+                Log.logWriter.set((PrintStream) logWriter);
+            } else {
+                Log.logWriter.set(new PrintStream(logWriter, true));
+            }
+        }
     }
 
     public void log(IStatus status) {
@@ -81,9 +116,16 @@ public class Log
         }
     }
 
-    private Log(String name)
-    {
+    private Log(String name, boolean doEclipseLog) {
         this.name = name;
+        this.doEclipseLog = doEclipseLog;
+    }
+
+    public void flush() {
+        PrintStream logStream = logWriter.get();
+        if (logStream != null) {
+            logStream.flush();
+        }
     }
 
     public String getName()
@@ -140,15 +182,26 @@ public class Log
 
     public void debug(Object message, Throwable t)
     {
-        debugMessage(message, t, System.err);
+        debugMessage(message, t);
     }
 
-    private static void debugMessage(Object message, Throwable t, PrintStream debugWriter) {
+    private void debugMessage(Object message, Throwable t) {
+        PrintStream logStream = logWriter.get();
         synchronized (Log.class) {
+            PrintStream debugWriter = logStream != null ? logStream : (quietMode ? null : System.err);
+            if (debugWriter == null) {
+                return;
+            }
+
             debugWriter.print(sdf.format(new Date()) + " - "); //$NON-NLS-1$
-            debugWriter.println(message);
+            if (message != null) {
+                debugWriter.println(message);
+            }
             if (t != null) {
                 t.printStackTrace(debugWriter);
+            }
+            if (message == null && t == null) {
+                debugWriter.println();
             }
             debugWriter.flush();
             for (Listener listener : listeners) {
@@ -163,7 +216,7 @@ public class Log
             info(message.toString(), (Throwable) message);
             return;
         }
-        debugMessage(message, null, System.err);
+        debugMessage(message, null);
         int severity = Status.INFO;
         writeEclipseLog(createStatus(severity, message));
     }
@@ -179,7 +232,7 @@ public class Log
             warn(message.toString(), (Throwable)message);
             return;
         }
-        debugMessage(message, null, System.err);
+        debugMessage(message, null);
         int severity = Status.WARNING;
         writeEclipseLog(createStatus(severity, message));
     }
@@ -195,7 +248,7 @@ public class Log
             error(null, (Throwable)message);
             return;
         }
-        debugMessage(message, null, System.err);
+        debugMessage(message, null);
         int severity = Status.ERROR;
         writeEclipseLog(createStatus(severity, message));
     }
@@ -215,17 +268,25 @@ public class Log
         error(message, t);
     }
 
-    private static void writeExceptionStatus(int severity, Object message, Throwable t)
+    private void writeExceptionStatus(int severity, Object message, Throwable t)
     {
-        debugMessage(message, t, System.err);
-        if (t == null) {
-            writeEclipseLog(createStatus(severity, message));
-        } else {
-            if (message == null) {
-                writeEclipseLog(GeneralUtils.makeExceptionStatus(severity, t));
+        debugMessage(message, t);
+        if (logWriter.get() == null) {
+            if (t == null) {
+                writeEclipseLog(createStatus(severity, message));
             } else {
-                writeEclipseLog(GeneralUtils.makeExceptionStatus(severity, message.toString(), t));
+                if (message == null) {
+                    writeEclipseLog(GeneralUtils.makeExceptionStatus(severity, t));
+                } else {
+                    writeEclipseLog(GeneralUtils.makeExceptionStatus(severity, message.toString(), t));
+                }
             }
+        }
+    }
+
+    private void writeEclipseLog(IStatus status) {
+        if (doEclipseLog && logWriter.get() == null && eclipseLog != null) {
+            eclipseLog.log(status);
         }
     }
 
@@ -253,9 +314,4 @@ public class Log
         void loggedMessage(Object message, Throwable t);
     }
 
-    private static void writeEclipseLog(IStatus status) {
-        if (eclipseLog != null) {
-            eclipseLog.log(status);
-        }
-    }
 }

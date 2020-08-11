@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,12 +18,8 @@ package org.jkiss.dbeaver.ui.controls.resultset.panel.grouping;
 
 import org.eclipse.jface.action.IContributionManager;
 import org.eclipse.jface.dialogs.IDialogConstants;
-import org.eclipse.osgi.util.NLS;
-import org.eclipse.swt.dnd.DND;
-import org.eclipse.swt.dnd.DropTarget;
-import org.eclipse.swt.dnd.DropTargetAdapter;
-import org.eclipse.swt.dnd.DropTargetEvent;
-import org.eclipse.swt.dnd.TextTransfer;
+import org.eclipse.swt.dnd.*;
+import org.jkiss.code.NotNull;
 import org.jkiss.dbeaver.DBException;
 import org.jkiss.dbeaver.model.DBPDataSource;
 import org.jkiss.dbeaver.model.DBPEvaluationContext;
@@ -33,9 +29,10 @@ import org.jkiss.dbeaver.model.data.DBDAttributeBindingMeta;
 import org.jkiss.dbeaver.model.sql.SQLDialect;
 import org.jkiss.dbeaver.model.sql.SQLUtils;
 import org.jkiss.dbeaver.runtime.DBWorkbench;
+import org.jkiss.dbeaver.ui.UIUtils;
 import org.jkiss.dbeaver.ui.controls.lightgrid.LightGrid;
-import org.jkiss.dbeaver.ui.controls.resultset.IResultSetDecorator;
 import org.jkiss.dbeaver.ui.controls.resultset.IResultSetPresentation;
+import org.jkiss.dbeaver.ui.controls.resultset.ResultSetDecoratorBase;
 import org.jkiss.dbeaver.ui.controls.resultset.internal.ResultSetMessages;
 
 import java.util.ArrayList;
@@ -44,7 +41,7 @@ import java.util.List;
 /**
  * Decorator for grouping panel
  */
-public class GroupingResultsDecorator implements IResultSetDecorator {
+public class GroupingResultsDecorator extends ResultSetDecoratorBase {
 
     private GroupingResultsContainer container;
 
@@ -54,7 +51,7 @@ public class GroupingResultsDecorator implements IResultSetDecorator {
 
     @Override
     public long getDecoratorFeatures() {
-        return FEATURE_NONE;
+        return FEATURE_PRESENTATIONS;
     }
 
     @Override
@@ -73,9 +70,9 @@ public class GroupingResultsDecorator implements IResultSetDecorator {
             return ResultSetMessages.results_decorator_no_connected_to_db;
         }
         SQLDialect dialect = SQLUtils.getDialectFromDataSource(dataSource);
-        if (dialect == null || !dialect.supportsSubqueries()) {
+        /*if (dialect == null) {
             return NLS.bind(ResultSetMessages.results_decorator_grouping_is_not_supported, dataSource.getContainer().getDriver().getFullName());
-        } else {
+        } else */{
             if (container.getGroupAttributes().isEmpty()) {
                 return ResultSetMessages.results_decorator_drag_and_drop_results_column;
             } else {
@@ -85,14 +82,14 @@ public class GroupingResultsDecorator implements IResultSetDecorator {
     }
 
     @Override
-    public void fillContributions(IContributionManager contributionManager) {
+    public void fillContributions(@NotNull IContributionManager contributionManager) {
         contributionManager.add(new GroupingPanel.EditColumnsAction(container));
         contributionManager.add(new GroupingPanel.DeleteColumnAction(container));
         contributionManager.add(new GroupingPanel.ClearGroupingAction(container));
     }
 
     @Override
-    public void registerDragAndDrop(IResultSetPresentation presentation) {
+    public void registerDragAndDrop(@NotNull IResultSetPresentation presentation) {
         // Register drop target to accept columns dropping
         Object oldDropTarget = presentation.getControl().getData(DND.DROP_TARGET_KEY);
         if (oldDropTarget instanceof DropTarget) {
@@ -171,18 +168,20 @@ public class GroupingResultsDecorator implements IResultSetDecorator {
                 if (!attributeBindings.isEmpty()) {
                     container.addGroupingAttributes(attributeBindings);
                 }
-                if (event.detail == DND.DROP_COPY) {
-                    GroupingConfigDialog dialog = new GroupingConfigDialog(container.getResultSetController().getControl().getShell(), container);
-                    if (dialog.open() != IDialogConstants.OK_ID) {
-                        container.clearGrouping();
-                        return;
+                UIUtils.asyncExec(() -> {
+                    if (event.detail == DND.DROP_COPY) {
+                        GroupingConfigDialog dialog = new GroupingConfigDialog(container.getResultSetController().getControl().getShell(), container);
+                        if (dialog.open() != IDialogConstants.OK_ID) {
+                            container.clearGrouping();
+                            return;
+                        }
                     }
-                }
-                try {
-                    container.rebuildGrouping();
-                } catch (DBException e) {
-                    DBWorkbench.getPlatformUI().showError(ResultSetMessages.results_decorator_error_grouping_error, ResultSetMessages.results_decorator_error_cant_perform_grouping_query, e);
-                }
+                    try {
+                        container.rebuildGrouping();
+                    } catch (DBException e) {
+                        DBWorkbench.getPlatformUI().showError(ResultSetMessages.results_decorator_error_grouping_error, ResultSetMessages.results_decorator_error_cant_perform_grouping_query, e);
+                    }
+                });
             }
         });
     }

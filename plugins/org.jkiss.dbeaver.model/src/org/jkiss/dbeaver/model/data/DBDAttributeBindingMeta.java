@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -47,30 +47,26 @@ public class DBDAttributeBindingMeta extends DBDAttributeBinding {
     @Nullable
     private DBDRowIdentifier rowIdentifier;
     @Nullable
+    private String rowIdentifierStatus;
+    @Nullable
     private List<DBSEntityReferrer> referrers;
     @Nullable
     private DBDPseudoAttribute pseudoAttribute;
 
+    private boolean showLabel;
+
     public DBDAttributeBindingMeta(
         @NotNull DBSDataContainer dataContainer,
         @NotNull DBCSession session,
-        @NotNull DBCAttributeMetaData metaAttribute)
-    {
+        @NotNull DBCAttributeMetaData metaAttribute) {
         super(DBUtils.findValueHandler(session, metaAttribute));
         this.dataContainer = dataContainer;
         this.metaAttribute = metaAttribute;
+
+        DBPDataSource dataSource = dataContainer.getDataSource();
+        showLabel = dataSource == null || !dataSource.getContainer().getPreferenceStore().getBoolean(ModelPreferences.RESULT_SET_IGNORE_COLUMN_LABEL);
     }
 
-    public DBDAttributeBindingMeta(
-        @NotNull DBSDataContainer dataContainer,
-        @NotNull DBCAttributeMetaData metaAttribute)
-    {
-        super(DBUtils.findValueHandler(dataContainer.getDataSource(), metaAttribute));
-        this.dataContainer = dataContainer;
-        this.metaAttribute = metaAttribute;
-    }
-
-    @NotNull
     @Override
     public DBPDataSource getDataSource() {
         return dataContainer.getDataSource();
@@ -84,11 +80,11 @@ public class DBDAttributeBindingMeta extends DBDAttributeBinding {
 
     /**
      * Attribute index in result set
+     *
      * @return attribute index (zero based)
      */
     @Override
-    public int getOrdinalPosition()
-    {
+    public int getOrdinalPosition() {
         return metaAttribute.getOrdinalPosition();
     }
 
@@ -107,6 +103,7 @@ public class DBDAttributeBindingMeta extends DBDAttributeBinding {
         return pseudoAttribute != null;
     }
 
+    @NotNull
     @Override
     public DBSDataContainer getDataContainer() {
         return dataContainer;
@@ -151,9 +148,8 @@ public class DBDAttributeBindingMeta extends DBDAttributeBinding {
      * Attribute label
      */
     @NotNull
-    public String getLabel()
-    {
-        if (getDataSource().getContainer().getPreferenceStore().getBoolean(ModelPreferences.RESULT_SET_IGNORE_COLUMN_LABEL)) {
+    public String getLabel() {
+        if (!showLabel) {
             // Return name if label is ignored
             return getName();
         }
@@ -164,15 +160,14 @@ public class DBDAttributeBindingMeta extends DBDAttributeBinding {
      * Attribute name
      */
     @NotNull
-    public String getName()
-    {
+    public String getName() {
         return metaAttribute.getName();
     }
 
     /**
      * Meta attribute (obtained from result set)
      */
-    @NotNull
+    @Nullable
     public DBCAttributeMetaData getMetaAttribute() {
         return metaAttribute;
     }
@@ -181,8 +176,7 @@ public class DBDAttributeBindingMeta extends DBDAttributeBinding {
      * Entity attribute (may be null)
      */
     @Nullable
-    public DBSEntityAttribute getEntityAttribute()
-    {
+    public DBSEntityAttribute getEntityAttribute() {
         return entityAttribute;
     }
 
@@ -192,6 +186,11 @@ public class DBDAttributeBindingMeta extends DBDAttributeBinding {
     @Nullable
     public DBDRowIdentifier getRowIdentifier() {
         return rowIdentifier;
+    }
+
+    @Override
+    public String getRowIdentifierStatus() {
+        return rowIdentifierStatus;
     }
 
     @Nullable
@@ -208,6 +207,7 @@ public class DBDAttributeBindingMeta extends DBDAttributeBinding {
 
     /**
      * Sets entity attribute
+     *
      * @return true if attribute type differs from meta attribute type.
      */
     public boolean setEntityAttribute(@Nullable DBSEntityAttribute entityAttribute, boolean updateHandler) {
@@ -223,6 +223,14 @@ public class DBDAttributeBindingMeta extends DBDAttributeBinding {
         return false;
     }
 
+    public boolean isShowLabel() {
+        return showLabel;
+    }
+
+    public void setShowLabel(boolean showLabel) {
+        this.showLabel = showLabel;
+    }
+
     public static boolean haveEqualsTypes(DBSTypedObject object1, DBSTypedObject object2) {
         return object1.getTypeID() == object2.getTypeID() &&
             object1.getDataKind() == object2.getDataKind() &&
@@ -233,11 +241,15 @@ public class DBDAttributeBindingMeta extends DBDAttributeBinding {
         this.rowIdentifier = rowIdentifier;
     }
 
+    public void setRowIdentifierStatus(@Nullable String rowIdentifierStatus) {
+        this.rowIdentifierStatus = rowIdentifierStatus;
+    }
+
     @Override
     public void lateBinding(@NotNull DBCSession session, List<Object[]> rows) throws DBException {
         DBSEntityAttribute entityAttribute = getEntityAttribute();
         if (entityAttribute != null) {
-            referrers = DBUtils.getAttributeReferrers(session.getProgressMonitor(), entityAttribute);
+            referrers = DBUtils.getAttributeReferrers(session.getProgressMonitor(), entityAttribute, true);
         }
         super.lateBinding(session, rows);
     }
@@ -252,18 +264,34 @@ public class DBDAttributeBindingMeta extends DBDAttributeBinding {
     }
 
     @Override
+    public String toString() {
+        return metaAttribute.toString();
+    }
+
+    @Override
     public boolean equals(Object obj) {
         if (obj instanceof DBDAttributeBindingMeta) {
             DBCAttributeMetaData cmpMeta = ((DBDAttributeBindingMeta) obj).metaAttribute;
             return
                 CommonUtils.equalObjects(metaAttribute.getName(), cmpMeta.getName()) &&
-                CommonUtils.equalObjects(metaAttribute.getLabel(), cmpMeta.getLabel()) &&
-                CommonUtils.equalObjects(metaAttribute.getEntityName(), cmpMeta.getEntityName()) &&
-                metaAttribute.getOrdinalPosition() == cmpMeta.getOrdinalPosition() &&
-                metaAttribute.getTypeID() == cmpMeta.getTypeID() &&
-                CommonUtils.equalObjects(metaAttribute.getTypeName(), cmpMeta.getTypeName())
+                    CommonUtils.equalObjects(metaAttribute.getLabel(), cmpMeta.getLabel()) &&
+                    CommonUtils.equalObjects(metaAttribute.getEntityName(), cmpMeta.getEntityName()) &&
+                    metaAttribute.getOrdinalPosition() == cmpMeta.getOrdinalPosition() &&
+                    metaAttribute.getTypeID() == cmpMeta.getTypeID() &&
+                    CommonUtils.equalObjects(metaAttribute.getTypeName(), cmpMeta.getTypeName())
                 ;
         }
         return false;
+    }
+
+    @Override
+    public int hashCode() {
+        return
+            CommonUtils.notEmpty(metaAttribute.getName()).hashCode() +
+            CommonUtils.notEmpty(metaAttribute.getLabel()).hashCode() +
+            CommonUtils.notEmpty(metaAttribute.getEntityName()).hashCode() +
+            metaAttribute.getOrdinalPosition() +
+            metaAttribute.getTypeID() +
+            CommonUtils.notEmpty(metaAttribute.getTypeName()).hashCode();
     }
 }

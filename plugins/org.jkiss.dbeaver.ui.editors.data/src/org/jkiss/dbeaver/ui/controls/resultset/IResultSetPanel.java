@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,16 +17,15 @@
 
 package org.jkiss.dbeaver.ui.controls.resultset;
 
-import org.eclipse.jface.action.IContributionManager;
 import org.eclipse.swt.widgets.Composite;
 import org.eclipse.swt.widgets.Control;
-import org.jkiss.dbeaver.ui.controls.resultset.IResultSetPresentation;
+import org.jkiss.dbeaver.ui.editors.IActionContributor;
 
 /**
  * ResultSet panel.
  * RSV can embed multiple panels to provide additional visualization functionality
  */
-public interface IResultSetPanel {
+public interface IResultSetPanel extends IActionContributor {
 
     Control createContents(IResultSetPresentation presentation, Composite parent);
 
@@ -38,5 +37,4 @@ public interface IResultSetPanel {
 
     void refresh(boolean force);
 
-    void contributeActions(IContributionManager manager);
 }

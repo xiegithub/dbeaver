@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -34,13 +34,17 @@ import org.jkiss.dbeaver.model.impl.jdbc.cache.JDBCObjectCache;
 import org.jkiss.dbeaver.model.impl.jdbc.cache.JDBCObjectLookupCache;
 import org.jkiss.dbeaver.model.impl.jdbc.cache.JDBCStructLookupCache;
 import org.jkiss.dbeaver.model.meta.*;
+import org.jkiss.dbeaver.model.preferences.DBPPropertySource;
 import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
 import org.jkiss.dbeaver.model.sql.SQLUtils;
 import org.jkiss.dbeaver.model.struct.DBSEntity;
 import org.jkiss.dbeaver.model.struct.DBSEntityConstraintType;
 import org.jkiss.dbeaver.model.struct.DBSObject;
 import org.jkiss.dbeaver.model.struct.DBSObjectFilter;
-import org.jkiss.dbeaver.model.struct.rdb.*;
+import org.jkiss.dbeaver.model.struct.rdb.DBSCatalog;
+import org.jkiss.dbeaver.model.struct.rdb.DBSIndexType;
+import org.jkiss.dbeaver.model.struct.rdb.DBSProcedureContainer;
+import org.jkiss.dbeaver.model.struct.rdb.DBSProcedureParameterKind;
 import org.jkiss.utils.ByteNumberFormat;
 import org.jkiss.utils.CommonUtils;
 
@@ -53,14 +57,15 @@ import java.util.List;
 /**
  * MySQLCatalog
  */
-public class MySQLCatalog implements DBSCatalog, DBPSaveableObject, DBPRefreshableObject, DBPSystemObject, DBSProcedureContainer
+public class MySQLCatalog implements DBSCatalog, DBPSaveableObject, DBPRefreshableObject, DBPSystemObject, DBSProcedureContainer, DBPObjectStatisticsCollector, DBPObjectStatistics
 {
 
     final TableCache tableCache = new TableCache();
     final ProceduresCache proceduresCache = new ProceduresCache();
     final PackageCache packageCache = new PackageCache();
     final TriggerCache triggerCache = new TriggerCache();
-    final ConstraintCache constraintCache = new ConstraintCache(tableCache);
+    final UniqueKeyCache uniqueKeyCache = new UniqueKeyCache(tableCache);
+    final CheckConstraintCache checkConstraintCache = new CheckConstraintCache(tableCache);
     final IndexCache indexCache = new IndexCache(tableCache);
     final EventCache eventCache = new EventCache();
 
@@ -68,6 +73,8 @@ public class MySQLCatalog implements DBSCatalog, DBPSaveableObject, DBPRefreshab
     private String name;
     private Long databaseSize;
     private boolean persisted;
+    private volatile boolean hasStatistics;
+    private long dbSize;
 
     public static class AdditionalInfo {
         private volatile boolean loaded = false;
@@ -155,9 +162,9 @@ public class MySQLCatalog implements DBSCatalog, DBPSaveableObject, DBPRefreshab
                     }
                     additionalInfo.loaded = true;
                 }
+            } catch (SQLException e) {
+                throw new DBCException(e, session.getExecutionContext());
             }
-        } catch (SQLException e) {
-            throw new DBCException(e, dataSource);
         }
     }
 
@@ -175,6 +182,26 @@ public class MySQLCatalog implements DBSCatalog, DBPSaveableObject, DBPRefreshab
             this.additionalInfo.sqlPath = "";
             persisted = false;
         }
+    }
+
+    @Override
+    public boolean hasStatistics() {
+        return true;
+    }
+
+    @Override
+    public long getStatObjectSize() {
+        return dbSize;
+    }
+
+    @Nullable
+    @Override
+    public DBPPropertySource getStatProperties() {
+        return null;
+    }
+
+    void setDatabaseSize(long dbSize) {
+        this.dbSize = dbSize;
     }
 
     @Override
@@ -262,9 +289,14 @@ public class MySQLCatalog implements DBSCatalog, DBPSaveableObject, DBPRefreshab
         return triggerCache;
     }
 
-    public ConstraintCache getConstraintCache()
+    public UniqueKeyCache getUniqueKeyCache()
     {
-        return constraintCache;
+        return uniqueKeyCache;
+    }
+
+    public CheckConstraintCache getCheckConstraintCache()
+    {
+        return checkConstraintCache;
     }
 
     public IndexCache getIndexCache()
@@ -376,7 +408,40 @@ public class MySQLCatalog implements DBSCatalog, DBPSaveableObject, DBPRefreshab
         }
         if ((scope & STRUCT_ASSOCIATIONS) != 0) {
             monitor.subTask("Cache table constraints");
-            constraintCache.getAllObjects(monitor, this);
+            uniqueKeyCache.getAllObjects(monitor, this);
+            if (getDataSource().supportsCheckConstraints()) {
+                checkConstraintCache.getAllObjects(monitor, this);
+            }
+        }
+    }
+
+    @Override
+    public boolean isStatisticsCollected() {
+        return hasStatistics;
+    }
+
+    @Override
+    public void collectObjectStatistics(DBRProgressMonitor monitor, boolean totalSizeOnly, boolean forceRefresh) throws DBException {
+        if (hasStatistics && !forceRefresh) {
+            return;
+        }
+        try (JDBCSession session = DBUtils.openMetaSession(monitor, this, "Load table status")) {
+            try (JDBCPreparedStatement dbStat = session.prepareStatement(
+                "SHOW TABLE STATUS FROM " + DBUtils.getQuotedIdentifier(this))) {
+                try (JDBCResultSet dbResult = dbStat.executeQuery()) {
+                    while (dbResult.next()) {
+                        String tableName = dbResult.getString("Name");
+                        MySQLTableBase table = tableCache.getObject(monitor, this, tableName);
+                        if (table instanceof MySQLTable) {
+                            ((MySQLTable) table).fetchAdditionalInfo(dbResult);
+                        }
+                    }
+                }
+            } catch (SQLException e) {
+                throw new DBCException(e, session.getExecutionContext());
+            }
+        } finally {
+            hasStatistics = true;
         }
     }
 
@@ -384,9 +449,13 @@ public class MySQLCatalog implements DBSCatalog, DBPSaveableObject, DBPRefreshab
     public synchronized DBSObject refreshObject(@NotNull DBRProgressMonitor monitor)
         throws DBException
     {
+        hasStatistics = false;
         tableCache.clearCache();
         indexCache.clearCache();
-        constraintCache.clearCache();
+        uniqueKeyCache.clearCache();
+        if (getDataSource().supportsCheckConstraints()) {
+            checkConstraintCache.clearCache();
+        }
         proceduresCache.clearCache();
         triggerCache.clearCache();
         eventCache.clearCache();
@@ -396,7 +465,7 @@ public class MySQLCatalog implements DBSCatalog, DBPSaveableObject, DBPRefreshab
     @Override
     public boolean isSystem()
     {
-        return MySQLConstants.INFO_SCHEMA_NAME.equalsIgnoreCase(getName()) || MySQLConstants.MYSQL_SCHEMA_NAME.equalsIgnoreCase(getName());
+        return MySQLConstants.INFO_SCHEMA_NAME.equalsIgnoreCase(getName()) || MySQLConstants.PERFORMANCE_SCHEMA_NAME.equalsIgnoreCase(getName()) || MySQLConstants.MYSQL_SCHEMA_NAME.equalsIgnoreCase(getName());
     }
 
     @Override
@@ -428,20 +497,31 @@ public class MySQLCatalog implements DBSCatalog, DBPSaveableObject, DBPRefreshab
                 if (object != null || objectName != null) {
                     sql.append(" WHERE ").append(tableNameCol).append(" LIKE ").append(SQLUtils.quoteString(session.getDataSource(), object != null ? object.getName() : objectName));
                 } else {
-                    DBSObjectFilter tableFilters = owner.getDataSource().getContainer().getObjectFilter(MySQLTable.class, owner, false);
-                    if (tableFilters != null && !tableFilters.isEmpty()) {
+                    DBSObjectFilter tableFilters = owner.getDataSource().getContainer().getObjectFilter(MySQLTable.class, owner, true);
+                    if (tableFilters != null && !tableFilters.isNotApplicable()) {
                         sql.append(" WHERE ");
-                        boolean hasCond = false;
-                        for (String incName : CommonUtils.safeCollection(tableFilters.getInclude())) {
-                            if (hasCond) sql.append(" OR ");
-                            hasCond = true;
-                            sql.append(tableNameCol).append(" LIKE ").append(SQLUtils.quoteString(session.getDataSource(), incName));
+                        if (!CommonUtils.isEmpty(tableFilters.getInclude())) {
+                            sql.append("(");
+                            boolean hasCond = false;
+                            for (String incName : tableFilters.getInclude()) {
+                                if (hasCond) sql.append(" OR ");
+                                hasCond = true;
+                                sql.append(tableNameCol).append(" LIKE ").append(SQLUtils.quoteString(session.getDataSource(), SQLUtils.makeSQLLike(incName)));
+                            }
+                            sql.append(")");
                         }
-                        hasCond = false;
-                        for (String incName : CommonUtils.safeCollection(tableFilters.getExclude())) {
-                            if (hasCond) sql.append(" OR ");
-                            hasCond = true;
-                            sql.append(tableNameCol).append(" NOT LIKE ").append(SQLUtils.quoteString(session.getDataSource(), incName));
+                        if (!CommonUtils.isEmpty(tableFilters.getExclude())) {
+                            if (!CommonUtils.isEmpty(tableFilters.getInclude())) {
+                                sql.append(" AND ");
+                            }
+                            sql.append("(");
+                            boolean hasCond = false;
+                            for (String incName : tableFilters.getExclude()) {
+                                if (hasCond) sql.append(" OR ");
+                                hasCond = true;
+                                sql.append(tableNameCol).append(" NOT LIKE ").append(SQLUtils.quoteString(session.getDataSource(), incName));
+                            }
+                            sql.append(")");
                         }
                     }
                 }
@@ -587,8 +667,8 @@ public class MySQLCatalog implements DBSCatalog, DBPSaveableObject, DBPRefreshab
     /**
      * Constraint cache implementation
      */
-    static class ConstraintCache extends JDBCCompositeCache<MySQLCatalog, MySQLTable, MySQLTableConstraint, MySQLTableConstraintColumn> {
-        ConstraintCache(TableCache tableCache)
+    static class UniqueKeyCache extends JDBCCompositeCache<MySQLCatalog, MySQLTable, MySQLTableConstraint, MySQLTableConstraintColumn> {
+        UniqueKeyCache(TableCache tableCache)
         {
             super(tableCache, MySQLTable.class, MySQLConstants.COL_TABLE_NAME, MySQLConstants.COL_CONSTRAINT_NAME);
         }
@@ -620,7 +700,7 @@ public class MySQLCatalog implements DBSCatalog, DBPSaveableObject, DBPRefreshab
         protected MySQLTableConstraint fetchObject(JDBCSession session, MySQLCatalog owner, MySQLTable parent, String constraintName, JDBCResultSet dbResult)
             throws SQLException, DBException
         {
-            if (constraintName.equals("PRIMARY")) {
+            if (constraintName.equals(MySQLConstants.CONSTRAINT_PRIMARY_KEY_NAME)) {
                 return new MySQLTableConstraint(
                     parent, constraintName, null, DBSEntityConstraintType.PRIMARY_KEY, true);
             } else {
@@ -632,8 +712,8 @@ public class MySQLCatalog implements DBSCatalog, DBPSaveableObject, DBPRefreshab
         @Nullable
         @Override
         protected MySQLTableConstraintColumn[] fetchObjectRow(
-            JDBCSession session,
-            MySQLTable parent, MySQLTableConstraint object, JDBCResultSet dbResult)
+                JDBCSession session,
+                MySQLTable parent, MySQLTableConstraint object, JDBCResultSet dbResult)
             throws SQLException, DBException
         {
             String columnName = JDBCUtils.safeGetString(dbResult, MySQLConstants.COL_COLUMN_NAME);
@@ -654,6 +734,53 @@ public class MySQLCatalog implements DBSCatalog, DBPSaveableObject, DBPRefreshab
         protected void cacheChildren(DBRProgressMonitor monitor, MySQLTableConstraint constraint, List<MySQLTableConstraintColumn> rows)
         {
             constraint.setColumns(rows);
+        }
+    }
+
+    /**
+     * Check constraint cache implementation
+     */
+
+    static class CheckConstraintCache extends JDBCCompositeCache<MySQLCatalog, MySQLTable, MySQLTableConstraint, MySQLTableConstraintColumn> {
+        CheckConstraintCache(TableCache tableCache)
+        {
+            super(tableCache, MySQLTable.class, MySQLConstants.COL_TABLE_NAME, MySQLConstants.COL_CONSTRAINT_NAME);
+        }
+
+        @Override
+        protected JDBCStatement prepareObjectsStatement(JDBCSession session, MySQLCatalog owner, MySQLTable forTable) throws SQLException {
+            StringBuilder sql = new StringBuilder(500);
+            sql.append(
+                    "SELECT cc.CONSTRAINT_NAME, cc.CHECK_CLAUSE, tc.TABLE_NAME\n" +
+                            "FROM INFORMATION_SCHEMA.CHECK_CONSTRAINTS cc, INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc\n" +
+                            "WHERE cc.CONSTRAINT_NAME = tc.CONSTRAINT_NAME\n" +
+                            "AND cc.CONSTRAINT_SCHEMA =?");
+            if (forTable != null) {
+                sql.append(" AND tc.TABLE_NAME=?");
+            }
+            sql.append("\nORDER BY cc.CONSTRAINT_NAME");
+
+            JDBCPreparedStatement dbStat = session.prepareStatement(sql.toString());
+            dbStat.setString(1, owner.getName());
+            if (forTable != null) {
+                dbStat.setString(2, forTable.getName());
+            }
+            return dbStat;
+        }
+
+        @Override
+        protected MySQLTableConstraint fetchObject(JDBCSession session, MySQLCatalog owner, MySQLTable parent, String checkConstraintName, JDBCResultSet resultSet) throws SQLException, DBException {
+            return new MySQLTableConstraint(parent, checkConstraintName, null, DBSEntityConstraintType.CHECK, true, resultSet);
+        }
+
+        @Override
+        protected MySQLTableConstraintColumn[] fetchObjectRow(JDBCSession session, MySQLTable mySQLTable, MySQLTableConstraint forObject, JDBCResultSet resultSet) throws SQLException, DBException {
+            return new MySQLTableConstraintColumn[0];
+        }
+
+        @Override
+        protected void cacheChildren(DBRProgressMonitor monitor, MySQLTableConstraint object, List<MySQLTableConstraintColumn> children) {
+
         }
     }
 
@@ -754,6 +881,7 @@ public class MySQLCatalog implements DBSCatalog, DBPSaveableObject, DBPRefreshab
             return new MySQLPackage(owner, dbResult);
         }
 
+        @NotNull
         @Override
         public JDBCStatement prepareLookupStatement(JDBCSession session, MySQLCatalog owner, MySQLPackage object, String objectName) throws SQLException {
             JDBCPreparedStatement dbStat = session.prepareStatement(
@@ -780,6 +908,7 @@ public class MySQLCatalog implements DBSCatalog, DBPSaveableObject, DBPRefreshab
             return new MySQLTrigger(owner, triggerTable, dbResult);
         }
 
+        @NotNull
         @Override
         public JDBCStatement prepareLookupStatement(JDBCSession session, MySQLCatalog owner, MySQLTrigger object, String objectName) throws SQLException {
             JDBCPreparedStatement dbStat = session.prepareStatement(
@@ -796,6 +925,7 @@ public class MySQLCatalog implements DBSCatalog, DBPSaveableObject, DBPRefreshab
     }
 
     static class EventCache extends JDBCObjectCache<MySQLCatalog, MySQLEvent> {
+        @NotNull
         @Override
         protected JDBCStatement prepareObjectsStatement(@NotNull JDBCSession session, @NotNull MySQLCatalog owner)
             throws SQLException

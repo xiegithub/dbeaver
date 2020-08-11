@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -38,7 +38,6 @@ import org.jkiss.utils.CommonUtils;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.util.Collection;
 import java.util.Map;
 
 /**
@@ -78,6 +77,7 @@ public class OracleView extends OracleTableBase implements OracleSourceObject, D
 
     private final AdditionalInfo additionalInfo = new AdditionalInfo();
     private String viewText;
+    private String viewFullText;
 
     public OracleView(OracleSchema schema, String name)
     {
@@ -117,10 +117,17 @@ public class OracleView extends OracleTableBase implements OracleSourceObject, D
     {
         if (viewText == null) {
             try {
-                viewText = OracleUtils.getDDL(monitor, getTableTypeName(), this, OracleDDLFormat.FULL, options);
+                viewText = OracleUtils.getDDL(monitor, getTableTypeName(), this, OracleDDLFormat.COMPACT, options);
             } catch (DBException e) {
                 log.warn("Error getting view definition from system package", e);
             }
+        }
+        boolean isCompact = CommonUtils.getBoolean(options.get(OPTION_SCRIPT_FORMAT_COMPACT), true);
+        if (!isCompact) {
+            if (viewFullText == null){
+                viewFullText = OracleUtils.getDDL(monitor, getTableTypeName(), this, OracleDDLFormat.FULL, options);
+            }
+            return viewFullText;
         }
         return viewText;
     }
@@ -174,7 +181,6 @@ public class OracleView extends OracleTableBase implements OracleSourceObject, D
             additionalInfo.loaded = true;
             return;
         }
-        String viewDefinitionText = null; // It is truncated definition text
         try (JDBCSession session = DBUtils.openMetaSession(monitor, this, "Load table status")) {
             boolean isOracle9 = getDataSource().isAtLeastV9();
             try (JDBCPreparedStatement dbStat = session.prepareStatement(
@@ -184,7 +190,6 @@ public class OracleView extends OracleTableBase implements OracleSourceObject, D
                 dbStat.setString(2, getName());
                 try (JDBCResultSet dbResult = dbStat.executeQuery()) {
                     if (dbResult.next()) {
-                        viewDefinitionText = JDBCUtils.safeGetString(dbResult, "TEXT");
                         additionalInfo.setTypeText(JDBCUtils.safeGetStringTrimmed(dbResult, "TYPE_TEXT"));
                         additionalInfo.setOidText(JDBCUtils.safeGetStringTrimmed(dbResult, "OID_TEXT"));
                         additionalInfo.typeOwner = JDBCUtils.safeGetStringTrimmed(dbResult, "VIEW_TYPE_OWNER");
@@ -200,31 +205,15 @@ public class OracleView extends OracleTableBase implements OracleSourceObject, D
                     }
                     additionalInfo.loaded = true;
                 }
+            } catch (SQLException e) {
+                throw new DBCException(e, session.getExecutionContext());
             }
-        }
-        catch (SQLException e) {
-            throw new DBCException(e, getDataSource());
         }
 
-        if (viewDefinitionText != null) {
-            StringBuilder paramsList = new StringBuilder();
-            Collection<OracleTableColumn> attributes = getAttributes(monitor);
-            if (attributes != null) {
-                paramsList.append("\n(");
-                boolean first = true;
-                for (OracleTableColumn column : attributes) {
-                    if (!first) paramsList.append(",");
-                    paramsList.append(DBUtils.getQuotedIdentifier(column));
-                    first = false;
-                }
-                paramsList.append(")");
-            }
-            viewText = "CREATE OR REPLACE VIEW " + getFullyQualifiedName(DBPEvaluationContext.DDL) + paramsList + "\nAS\n" + viewDefinitionText;
-        }
     }
 
     @Override
-    public DBEPersistAction[] getCompileActions()
+    public DBEPersistAction[] getCompileActions(DBRProgressMonitor monitor)
     {
         return new DBEPersistAction[] {
             new OracleObjectPersistAction(

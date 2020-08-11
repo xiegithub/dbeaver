@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,7 +16,7 @@
  */
 package org.jkiss.dbeaver.ui.dashboard.registry;
 
-import org.apache.commons.jexl2.Expression;
+import org.apache.commons.jexl3.JexlExpression;
 import org.eclipse.core.runtime.IConfigurationElement;
 import org.jkiss.code.NotNull;
 import org.jkiss.dbeaver.DBException;
@@ -61,7 +61,7 @@ public class DashboardDescriptor extends AbstractContextDescriptor implements DB
     private String[] mapKeys;
     private String[] mapLabels;
     private String mapFormula;
-    private Expression mapFormulaExpr;
+    private JexlExpression mapFormulaExpr;
 
     private String[] tags;
     private final List<DataSourceMapping> dataSourceMappings = new ArrayList<>();
@@ -452,7 +452,7 @@ public class DashboardDescriptor extends AbstractContextDescriptor implements DB
         return mapLabels;
     }
 
-    public Expression getMapFormulaExpr() {
+    public JexlExpression getMapFormulaExpr() {
         return mapFormulaExpr;
     }
 

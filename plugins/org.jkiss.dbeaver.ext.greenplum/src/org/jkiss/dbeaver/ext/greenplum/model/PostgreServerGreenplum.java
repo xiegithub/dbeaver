@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  * Copyright (C) 2019 Dmitriy Dubson (ddubson@pivotal.io)
  * Copyright (C) 2019 Gavin Shaw (gshaw@pivotal.io)
  * Copyright (C) 2019 Zach Marcin (zmarcin@pivotal.io)
@@ -42,7 +42,7 @@ public class PostgreServerGreenplum extends PostgreServerExtensionBase {
     }
 
     @Override
-    public boolean supportFunctionDefRead() {
+    public boolean supportsFunctionDefRead() {
         return false;
     }
 
@@ -68,11 +68,11 @@ public class PostgreServerGreenplum extends PostgreServerExtensionBase {
     }
 
     @Override
-    public PostgreTableBase createNewRelation(PostgreSchema schema, PostgreClass.RelKind kind) {
+    public PostgreTableBase createNewRelation(DBRProgressMonitor monitor, PostgreSchema schema, PostgreClass.RelKind kind, Object copyFrom) throws DBException {
         if (kind == PostgreClass.RelKind.r) {
             return new GreenplumTable(schema);
         }
-        return super.createNewRelation(schema, kind);
+        return super.createNewRelation(monitor, schema, kind, copyFrom);
     }
 
     private boolean isRelationExternal(JDBCResultSet dbResult) {
@@ -88,6 +88,11 @@ public class PostgreServerGreenplum extends PostgreServerExtensionBase {
     public void configureDialect(PostgreDialect dialect) {
         dialect.addExtraKeywords("DISTRIBUTED", "SEGMENT", "REJECT", "FORMAT", "MASTER", "WEB", "WRITABLE", "READABLE",
                 "LOG", "ERRORS");
+    }
+
+    @Override
+    public boolean supportsEntityMetadataInResults() {
+        return true;
     }
 
     @Override

@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,10 +19,15 @@ package org.jkiss.dbeaver.ext.postgresql.model.data;
 import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
 import org.jkiss.dbeaver.Log;
+import org.jkiss.dbeaver.model.DBUtils;
 import org.jkiss.dbeaver.model.data.DBDCursor;
-import org.jkiss.dbeaver.model.exec.*;
-import org.jkiss.dbeaver.model.exec.jdbc.JDBCPreparedStatement;
+import org.jkiss.dbeaver.model.exec.DBCException;
+import org.jkiss.dbeaver.model.exec.DBCResultSet;
+import org.jkiss.dbeaver.model.exec.DBCSession;
+import org.jkiss.dbeaver.model.exec.DBCTransactionManager;
 import org.jkiss.dbeaver.model.exec.jdbc.JDBCSession;
+import org.jkiss.dbeaver.model.exec.jdbc.JDBCStatement;
+import org.jkiss.dbeaver.model.impl.jdbc.JDBCUtils;
 
 import java.sql.SQLException;
 
@@ -33,11 +38,15 @@ public class PostgreRefCursor implements DBDCursor {
 
     private static final Log log = Log.getLog(PostgreRefCursor.class);
 
+    private final JDBCSession session;
     private String cursorName;
-    private JDBCPreparedStatement cursorStatement;
+    private boolean isOpen;
+    private JDBCStatement cursorStatement;
 
-    public PostgreRefCursor(@NotNull String cursorName) throws SQLException {
+    public PostgreRefCursor(JDBCSession session, @NotNull String cursorName) throws SQLException {
+        this.session = session;
         this.cursorName = cursorName;
+        this.isOpen = true;
     }
 
     @Override
@@ -57,6 +66,13 @@ public class PostgreRefCursor implements DBDCursor {
 
     @Override
     public void release() {
+        if (this.isOpen) {
+            try {
+                JDBCUtils.executeStatement(session, "CLOSE \"" + cursorName + "\"");
+            } catch (Exception e) {
+                log.error(e);
+            }
+        }
         if (cursorStatement != null) {
             cursorStatement.close();
             cursorStatement = null;
@@ -65,12 +81,19 @@ public class PostgreRefCursor implements DBDCursor {
 
     @Override
     public DBCResultSet openResultSet(DBCSession session) throws DBCException {
-        release();
         try {
-            cursorStatement = ((JDBCSession)session).prepareStatement("FETCH ALL IN \"" + cursorName + "\"");
-            return cursorStatement.executeQuery();
+            DBCTransactionManager txnManager = DBUtils.getTransactionManager(session.getExecutionContext());
+            if (txnManager != null && txnManager.isAutoCommit()) {
+                throw new DBCException("Ref cursors are not available in auto-commit mode");
+            }
+            if (cursorStatement != null) {
+                cursorStatement.close();
+            }
+            JDBCUtils.executeStatement(this.session, "MOVE FIRST IN \"" + cursorName + "\"");
+            cursorStatement = this.session.createStatement();
+            return cursorStatement.executeQuery("FETCH ALL IN \"" + cursorName + "\"");
         } catch (SQLException e) {
-            throw new DBCException(e, session.getDataSource());
+            throw new DBCException(e, session.getExecutionContext());
         }
     }
 

@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,12 +21,14 @@ import org.jkiss.code.NotNull;
 import org.jkiss.dbeaver.DBException;
 import org.jkiss.dbeaver.Log;
 import org.jkiss.dbeaver.ModelPreferences;
+import org.jkiss.dbeaver.model.DBPDataSourcePermission;
 import org.jkiss.dbeaver.model.DBUtils;
+import org.jkiss.dbeaver.model.exec.DBCExecutionContext;
+import org.jkiss.dbeaver.model.exec.DBCExecutionContextDefaults;
 import org.jkiss.dbeaver.model.preferences.DBPPreferenceStore;
 import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
 import org.jkiss.dbeaver.model.struct.DBSFolder;
 import org.jkiss.dbeaver.model.struct.DBSObject;
-import org.jkiss.dbeaver.model.struct.DBSObjectSelector;
 import org.jkiss.dbeaver.model.struct.DBSWrapper;
 import org.jkiss.dbeaver.runtime.DBWorkbench;
 import org.jkiss.utils.ArrayUtils;
@@ -81,11 +83,14 @@ public class DBNUtils {
         if (forTree) {
             for (int i = 0; i < children.length; i++) {
                 DBNNode node = children[i];
-                if (node instanceof DBNDatabaseNode && !((DBNDatabaseNode) node).getMeta().isNavigable()) {
-                    if (filtered == null) {
-                        filtered = new ArrayList<>(children.length);
-                        for (int k = 0; k < i; k++) {
-                            filtered.add(children[k]);
+                if (node instanceof DBNDatabaseNode) {
+                    DBNDatabaseNode dbNode = (DBNDatabaseNode) node;
+                    if (dbNode.getMeta() != null && !dbNode.getMeta().isNavigable()) {
+                        if (filtered == null) {
+                            filtered = new ArrayList<>(children.length);
+                            for (int k = 0; k < i; k++) {
+                                filtered.add(children[k]);
+                            }
                         }
                     }
                 } else if (filtered != null) {
@@ -93,7 +98,7 @@ public class DBNUtils {
                 }
             }
         }
-        DBNNode[] result = filtered == null ? children : filtered.toArray(new DBNNode[filtered.size()]);
+        DBNNode[] result = filtered == null ? children : filtered.toArray(new DBNNode[0]);
         sortNodes(result);
         return result;
     }
@@ -119,13 +124,18 @@ public class DBNUtils {
     {
         if (element instanceof DBSWrapper) {
             DBSObject object = ((DBSWrapper) element).getObject();
-            DBSObjectSelector activeContainer = DBUtils.getParentAdapter(
-                DBSObjectSelector.class, object);
-            if (activeContainer != null) {
-                return activeContainer.getDefaultObject() == object;
+            if (object != null) {
+                // Get default context from default instance - not from active object
+                DBCExecutionContext defaultContext = DBUtils.getDefaultContext(object.getDataSource(), false);
+                if (defaultContext != null) {
+                    DBCExecutionContextDefaults contextDefaults = defaultContext.getContextDefaults();
+                    if (contextDefaults != null) {
+                        return contextDefaults.getDefaultCatalog() == object || contextDefaults.getDefaultSchema() == object;
+                    }
+                }
             }
         } else if (element instanceof DBNProject) {
-            if (((DBNProject)element).getProject() == DBWorkbench.getPlatform().getProjectManager().getActiveProject()) {
+            if (((DBNProject)element).getProject() == DBWorkbench.getPlatform().getWorkspace().getActiveProject()) {
                 return true;
             }
         }
@@ -133,13 +143,26 @@ public class DBNUtils {
     }
 
     public static void refreshNavigatorResource(@NotNull IResource resource, Object source) {
-        final DBNProject projectNode = DBWorkbench.getPlatform().getNavigatorModel().getRoot().getProject(resource.getProject());
+        final DBNProject projectNode = DBWorkbench.getPlatform().getNavigatorModel().getRoot().getProjectNode(resource.getProject());
         if (projectNode != null) {
             final DBNResource fileNode = projectNode.findResource(resource);
             if (fileNode != null) {
                 fileNode.refreshResourceState(source);
             }
         }
+    }
+
+    @NotNull
+    public static String getLastNodePathSegment(@NotNull String path) {
+        int divPos = path.lastIndexOf('/');
+        return divPos == -1 ? path : path.substring(divPos + 1);
+    }
+
+    public static boolean isReadOnly(DBNNode node)
+    {
+        return node instanceof DBNDatabaseNode &&
+            !(node instanceof DBNDataSource) &&
+            !((DBNDatabaseNode) node).getDataSourceContainer().hasModifyPermission(DBPDataSourcePermission.PERMISSION_EDIT_METADATA);
     }
 
     private static class NodeNameComparator implements Comparator<DBNNode> {

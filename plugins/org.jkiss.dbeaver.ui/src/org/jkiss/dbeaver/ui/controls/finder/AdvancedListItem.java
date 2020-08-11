@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,16 +16,15 @@
  */
 package org.jkiss.dbeaver.ui.controls.finder;
 
+import org.eclipse.jface.viewers.ILabelProvider;
+import org.eclipse.jface.viewers.IToolTipProvider;
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.events.*;
-import org.eclipse.swt.graphics.GC;
-import org.eclipse.swt.graphics.Image;
-import org.eclipse.swt.graphics.Point;
-import org.eclipse.swt.graphics.Rectangle;
+import org.eclipse.swt.graphics.*;
 import org.eclipse.swt.widgets.Canvas;
 import org.jkiss.dbeaver.Log;
-import org.jkiss.dbeaver.ui.UIUtils;
 import org.jkiss.dbeaver.ui.css.CSSUtils;
+import org.jkiss.utils.CommonUtils;
 
 /**
  * AdvancedListItem
@@ -36,19 +35,24 @@ public class AdvancedListItem extends Canvas {
     public static final int BORDER_MARGIN = 5;
 
     private final AdvancedList list;
-    private String text;
-    private final Image icon;
+    private final ILabelProvider labelProvider;
     private boolean isHover;
+    final TextLayout textLayout;
 
-    public AdvancedListItem(AdvancedList list, String text, Image icon, String toolTip) {
-        super(list.getContainer(), SWT.DOUBLE_BUFFERED);
-
+    public AdvancedListItem(AdvancedList list, Object item, ILabelProvider labelProvider) {
+        super(list.getContainer(), SWT.NONE);
+        this.labelProvider = labelProvider;
         this.list = list;
         this.list.addItem(this);
-        this.text = text;
-        this.icon = icon;
-        if (toolTip != null) {
-            setToolTipText(toolTip);
+        this.setData(item);
+        this.textLayout = new TextLayout(list.getDisplay());
+        this.textLayout.setText(labelProvider.getText(item));
+
+        if (labelProvider instanceof IToolTipProvider) {
+            String toolTipText = ((IToolTipProvider) labelProvider).getToolTipText(item);
+            if (!CommonUtils.isEmpty(toolTipText)) {
+                setToolTipText(toolTipText);
+            }
         }
 
         CSSUtils.setCSSClass(this, "Composite");
@@ -116,6 +120,9 @@ public class AdvancedListItem extends Canvas {
 
     private void painItem(PaintEvent e) {
         Point itemSize = getSize();
+        if (itemSize.x <= 0 || itemSize.y <= 0) {
+            return;
+        }
         boolean isSelected = getList().getSelectedItem() == this;
 
         GC gc = e.gc;
@@ -134,6 +141,7 @@ public class AdvancedListItem extends Canvas {
             gc.fillRoundRectangle(0, 0, itemSize.x, itemSize.y, 5, 5);
         }
 
+        Image icon = labelProvider.getImage(getData());
         Rectangle iconBounds = icon.getBounds();
         Point imageSize = getList().getImageSize();
 
@@ -145,6 +153,10 @@ public class AdvancedListItem extends Canvas {
         gc.drawImage(icon, 0, 0, iconBounds.width, iconBounds.height,
             imgPosX - e.x, imgPosY, imageSize.x, imageSize.y);
 
+        this.textLayout.setWidth(itemSize.x - BORDER_MARGIN * 2);
+        this.textLayout.setAlignment(SWT.CENTER);
+        this.textLayout.draw(gc, BORDER_MARGIN, imageSize.y + BORDER_MARGIN);
+        /*String text = labelProvider.getText(getData());
         String theText = text;
         int divPos = theText.indexOf('(');
         if (divPos != -1 && text.endsWith(")")) {
@@ -155,7 +167,7 @@ public class AdvancedListItem extends Canvas {
             drawItemText(e, itemSize, gc, subTitle, getList().getTextSize().y + 1);
         } else {
             drawItemText(e, itemSize, gc, text, BORDER_MARGIN * 2);
-        }
+        }*/
     }
 
     private void drawItemText(PaintEvent e, Point itemSize, GC gc, String theText, int topIndent) {
@@ -171,10 +183,6 @@ public class AdvancedListItem extends Canvas {
         return list;
     }
 
-    public Image getIcon() {
-        return icon;
-    }
-
     public boolean isHover() {
         return isHover;
     }
@@ -183,7 +191,7 @@ public class AdvancedListItem extends Canvas {
     public Point computeSize(int wHint, int hHint, boolean changed) {
         Point imageSize = getList().getImageSize();
         int itemLength = imageSize.x + BORDER_MARGIN * 4 + getList().getTextSize().y;
-        return new Point(itemLength, itemLength);
+        return new Point(itemLength, itemLength + BORDER_MARGIN * 2);
         //return super.computeSize(wHint, hHint, changed);//getList().getImageSize();
     }
 

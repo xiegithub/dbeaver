@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,6 +23,8 @@ import org.jkiss.dbeaver.DBException;
 import org.jkiss.dbeaver.Log;
 import org.jkiss.dbeaver.ModelPreferences;
 import org.jkiss.dbeaver.model.*;
+import org.jkiss.dbeaver.model.auth.DBAAuthCredentials;
+import org.jkiss.dbeaver.model.auth.DBAAuthModel;
 import org.jkiss.dbeaver.model.connection.DBPConnectionConfiguration;
 import org.jkiss.dbeaver.model.connection.DBPDriver;
 import org.jkiss.dbeaver.model.data.DBDDataFormatterProfile;
@@ -41,17 +43,22 @@ import org.jkiss.dbeaver.model.meta.Property;
 import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
 import org.jkiss.dbeaver.model.runtime.DBRRunnableWithProgress;
 import org.jkiss.dbeaver.model.runtime.VoidProgressMonitor;
-import org.jkiss.dbeaver.model.sql.SQLDataSource;
 import org.jkiss.dbeaver.model.sql.SQLDialect;
 import org.jkiss.dbeaver.model.sql.SQLState;
-import org.jkiss.dbeaver.model.struct.*;
+import org.jkiss.dbeaver.model.struct.DBSDataType;
+import org.jkiss.dbeaver.model.struct.DBSInstanceContainer;
+import org.jkiss.dbeaver.model.struct.DBSObject;
+import org.jkiss.dbeaver.model.struct.DBSObjectContainer;
 import org.jkiss.dbeaver.utils.GeneralUtils;
 import org.jkiss.dbeaver.utils.RuntimeUtils;
 import org.jkiss.utils.CommonUtils;
 
 import java.net.SocketException;
 import java.sql.*;
-import java.util.*;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
 
 /**
  * JDBC data source
@@ -59,7 +66,6 @@ import java.util.*;
 public abstract class JDBCDataSource
     implements
         DBPDataSource,
-        SQLDataSource,
         DBPDataTypeProvider,
         DBPErrorAssistant,
         DBPRefreshableObject,
@@ -102,27 +108,44 @@ public abstract class JDBCDataSource
     }
 
     protected void initializeRemoteInstance(@NotNull DBRProgressMonitor monitor) throws DBException {
-        this.defaultRemoteInstance = new JDBCRemoteInstance<>(monitor, this, true);
+        this.defaultRemoteInstance = new JDBCRemoteInstance(monitor, this, true);
     }
 
-    protected Connection openConnection(@NotNull DBRProgressMonitor monitor, JDBCRemoteInstance remoteInstance, @NotNull String purpose)
+    protected Connection openConnection(@NotNull DBRProgressMonitor monitor, @Nullable JDBCExecutionContext context, @NotNull String purpose)
         throws DBCException
     {
         // It MUST be a JDBC driver
         Driver driverInstance = null;
-        if (getContainer().getDriver().isInstantiable()) {
+        DBPDriver driver = getContainer().getDriver();
+        if (driver.isInstantiable() && !CommonUtils.isEmpty(driver.getDriverClassName())) {
             try {
                 driverInstance = getDriverInstance(monitor);
             } catch (DBException e) {
                 throw new DBCConnectException("Can't create driver instance", e, this);
             }
+        } else {
+            if (!CommonUtils.isEmpty(driver.getDriverClassName())) {
+                try {
+                    driver.loadDriver(monitor);
+                    Class.forName(driver.getDriverClassName(), true, driver.getClassLoader());
+                } catch (Exception e) {
+                    throw new DBCException("Driver class '" + driver.getDriverClassName() + "' not found", e);
+                }
+            }
         }
 
-        DBPConnectionConfiguration connectionInfo = container.getActualConnectionConfiguration();
-        Properties connectProps = getAllConnectionProperties(monitor, purpose, connectionInfo);
+        DBPConnectionConfiguration connectionInfo = new DBPConnectionConfiguration(container.getActualConnectionConfiguration());
+        Properties connectProps = getAllConnectionProperties(monitor, context, purpose, connectionInfo);
+
+        final JDBCConnectionConfigurer connectionConfigurer = GeneralUtils.adapt(this, JDBCConnectionConfigurer.class);
+
+        DBAAuthModel authModel = connectionInfo.getAuthModel();
 
         // Obtain connection
         try {
+            if (connectionConfigurer != null) {
+                connectionConfigurer.beforeConnection(monitor, connectionInfo, connectProps);
+            }
             final String url = getConnectionURL(connectionInfo);
             if (driverInstance != null) {
                 try {
@@ -140,6 +163,13 @@ public abstract class JDBCDataSource
             int openTimeout = getContainer().getPreferenceStore().getInt(ModelPreferences.CONNECTION_OPEN_TIMEOUT);
             final Driver driverInstanceFinal = driverInstance;
 
+            try {
+                DBAAuthCredentials credentials = authModel.loadCredentials(getContainer(), connectionInfo);
+                authModel.initAuthentication(monitor, this, credentials, connectionInfo, connectProps);
+            } catch (DBException e) {
+                throw new DBCException("Authentication error", e);
+            }
+
             DBRRunnableWithProgress connectTask = monitor1 -> {
                 try {
                     if (driverInstanceFinal == null) {
@@ -149,15 +179,29 @@ public abstract class JDBCDataSource
                     }
                 } catch (Exception e) {
                     error[0] = e;
+                } finally {
+                    if (connectionConfigurer != null) {
+                        try {
+                            connectionConfigurer.afterConnection(monitor, connectionInfo, connectProps, connection[0], error[0]);
+                        } catch (Exception e) {
+                            log.debug(e);
+                        }
+                    }
                 }
             };
+
             boolean openTaskFinished;
-            if (openTimeout <= 0) {
-                openTaskFinished = true;
-                connectTask.run(monitor);
-            } else {
-                openTaskFinished = RuntimeUtils.runTask(connectTask, "Opening database connection", openTimeout + 2000);
+            try {
+                if (openTimeout <= 0) {
+                    openTaskFinished = true;
+                    connectTask.run(monitor);
+                } else {
+                    openTaskFinished = RuntimeUtils.runTask(connectTask, "Opening database connection", openTimeout + 2000);
+                }
+            } finally {
+                authModel.endAuthentication(container, connectionInfo, connectProps);
             }
+
             if (error[0] != null) {
                 throw error[0];
             }
@@ -182,16 +226,16 @@ public abstract class JDBCDataSource
             throw ex;
         }
         catch (Throwable e) {
-            throw new DBCConnectException("Unexpected driver error occurred while connecting to database", e);
+            throw new DBCConnectException("Unexpected driver error occurred while connecting to the database", e);
         }
     }
 
     protected void fillConnectionProperties(DBPConnectionConfiguration connectionInfo, Properties connectProps) {
         {
             // Use driver properties
-            final Map<Object, Object> driverProperties = container.getDriver().getConnectionProperties();
-            for (Map.Entry<Object,Object> prop : driverProperties.entrySet()) {
-                connectProps.setProperty(CommonUtils.toString(prop.getKey()), CommonUtils.toString(prop.getValue()));
+            final Map<String, Object> driverProperties = container.getDriver().getConnectionProperties();
+            for (Map.Entry<String, Object> prop : driverProperties.entrySet()) {
+                connectProps.setProperty(prop.getKey(), CommonUtils.toString(prop.getValue()));
             }
         }
 
@@ -200,13 +244,13 @@ public abstract class JDBCDataSource
         }
     }
 
-    protected Properties getAllConnectionProperties(@NotNull DBRProgressMonitor monitor, String purpose, DBPConnectionConfiguration connectionInfo) throws DBCException {
+    protected Properties getAllConnectionProperties(@NotNull DBRProgressMonitor monitor, JDBCExecutionContext context, String purpose, DBPConnectionConfiguration connectionInfo) throws DBCException {
         // Set properties
         Properties connectProps = new Properties();
 
         {
             // Use properties defined by datasource itself
-            Map<String,String> internalProps = getInternalConnectionProperties(monitor, getContainer().getDriver(), purpose, connectionInfo);
+            Map<String,String> internalProps = getInternalConnectionProperties(monitor, getContainer().getDriver(), context, purpose, connectionInfo);
             if (internalProps != null) {
                 connectProps.putAll(internalProps);
             }
@@ -214,12 +258,6 @@ public abstract class JDBCDataSource
 
         fillConnectionProperties(connectionInfo, connectProps);
 
-        if (!CommonUtils.isEmpty(connectionInfo.getUserName())) {
-            connectProps.put(DBConstants.DATA_SOURCE_PROPERTY_USER, getConnectionUserName(connectionInfo));
-        }
-        if (!CommonUtils.isEmpty(connectionInfo.getUserPassword())) {
-            connectProps.put(DBConstants.DATA_SOURCE_PROPERTY_PASSWORD, getConnectionUserPassword(connectionInfo));
-        }
         return connectProps;
     }
 
@@ -232,21 +270,29 @@ public abstract class JDBCDataSource
         return url;
     }
 
-    protected void closeConnection(final Connection connection, String purpose)
+    /**
+     * Closes JDBC connection.
+     * Do actual close in separate thread.
+     * After ModelPreferences.CONNECTION_CLOSE_TIMEOUT delay returns false.
+     * @return true on successful connection close
+     */
+    public boolean closeConnection(final Connection connection, String purpose, boolean doRollback)
     {
         if (connection != null) {
             // Close datasource (in async task)
-            RuntimeUtils.runTask(monitor -> {
-                try {
-                    // If we in transaction - rollback it.
-                    // Any valuable transaction changes should be committed by UI
-                    // so here we do it just in case to avoid error messages on close with open transaction
-                    if (!connection.isClosed() && !connection.getAutoCommit()) {
-                        connection.rollback();
+            return RuntimeUtils.runTask(monitor -> {
+                if (doRollback) {
+                    try {
+                        // If we in transaction - rollback it.
+                        // Any valuable transaction changes should be committed by UI
+                        // so here we do it just in case to avoid error messages on close with open transaction
+                        if (!connection.isClosed() && !connection.getAutoCommit()) {
+                            connection.rollback();
+                        }
+                    } catch (Throwable e) {
+                        // Do not write warning because connection maybe broken before the moment of close
+                        log.debug("Error closing active transaction", e);
                     }
-                } catch (Throwable e) {
-                    // Do not write warning because connection maybe broken before the moment of close
-                    log.debug("Error closing active transaction", e);
                 }
                 try {
                     connection.close();
@@ -256,6 +302,9 @@ public abstract class JDBCDataSource
                 }
             }, "Close JDBC connection (" + purpose + ")",
                 getContainer().getPreferenceStore().getInt(ModelPreferences.CONNECTION_CLOSE_TIMEOUT));
+        } else {
+            log.debug("Null connection parameter");
+            return true;
         }
     }
 
@@ -270,7 +319,7 @@ public abstract class JDBCDataSource
     }
 */
 
-    protected void initializeContextState(@NotNull DBRProgressMonitor monitor, @NotNull JDBCExecutionContext context, boolean setActiveObject) throws DBCException {
+    protected void initializeContextState(@NotNull DBRProgressMonitor monitor, @NotNull JDBCExecutionContext context, JDBCExecutionContext initFrom) throws DBException {
 
     }
 
@@ -314,24 +363,33 @@ public abstract class JDBCDataSource
         return jdbcFactory;
     }
 
+    @NotNull
     @Override
     public JDBCRemoteInstance getDefaultInstance() {
         return defaultRemoteInstance;
     }
 
+    @NotNull
     @Override
     public List<? extends JDBCRemoteInstance> getAvailableInstances() {
         JDBCRemoteInstance defaultInstance = getDefaultInstance();
-        return defaultInstance == null ? Collections.emptyList() : Collections.singletonList(defaultInstance);
+        return defaultInstance == null ?
+            Collections.emptyList() :
+            Collections.singletonList(defaultInstance);
     }
 
     @Override
     public void shutdown(DBRProgressMonitor monitor)
     {
         for (JDBCRemoteInstance instance : getAvailableInstances()) {
-            monitor.subTask("Disconnect from '" + instance.getName() + "'");
-            instance.shutdown(monitor);
-            monitor.worked(1);
+            Object exclusiveLock = instance.getExclusiveLock().acquireExclusiveLock();
+            try {
+                monitor.subTask("Disconnect from '" + instance.getName() + "'");
+                instance.shutdown(monitor);
+                monitor.worked(1);
+            } finally {
+                instance.getExclusiveLock().releaseExclusiveLock(exclusiveLock);
+            }
         }
         defaultRemoteInstance = null;
     }
@@ -344,12 +402,7 @@ public abstract class JDBCDataSource
         try (JDBCSession session = DBUtils.openMetaSession(monitor, this, ModelMessages.model_jdbc_read_database_meta_data)) {
             JDBCDatabaseMetaData metaData = session.getMetaData();
 
-            try {
-                databaseMajorVersion = metaData.getDatabaseMajorVersion();
-                databaseMinorVersion = metaData.getDatabaseMinorVersion();
-            } catch (Throwable e) {
-                log.error("Error determining server version", e);
-            }
+            readDatabaseServerVersion(metaData);
 
             if (this.sqlDialect instanceof JDBCSQLDialect) {
                 try {
@@ -360,9 +413,9 @@ public abstract class JDBCDataSource
             }
 
             try {
-                dataSourceInfo = createDataSourceInfo(metaData);
+                dataSourceInfo = createDataSourceInfo(monitor, metaData);
             } catch (Throwable e) {
-                log.error("Error obtaining database info");
+                log.error("Error obtaining database info", e);
             }
         } catch (SQLException ex) {
             throw new DBException("Error getting JDBC meta data", ex, this);
@@ -371,6 +424,15 @@ public abstract class JDBCDataSource
                 log.warn("NULL datasource info was created");
                 dataSourceInfo = new JDBCDataSourceInfo(container);
             }
+        }
+    }
+
+    protected void readDatabaseServerVersion(DatabaseMetaData metaData) {
+        try {
+            databaseMajorVersion = metaData.getDatabaseMajorVersion();
+            databaseMinorVersion = metaData.getDatabaseMinorVersion();
+        } catch (Throwable e) {
+            log.error("Error determining server version", e);
         }
     }
 
@@ -430,6 +492,10 @@ public abstract class JDBCDataSource
     public DBSObject refreshObject(@NotNull DBRProgressMonitor monitor) throws DBException {
         this.dataSourceInfo = new JDBCDataSourceInfo(container);
         return this;
+    }
+
+    protected JDBCExecutionContext createExecutionContext(JDBCRemoteInstance instance, String type) {
+        return new JDBCExecutionContext(instance, type);
     }
 
     @Nullable
@@ -589,22 +655,11 @@ public abstract class JDBCDataSource
         return false;
     }
 
-    protected String getConnectionUserName(@NotNull DBPConnectionConfiguration connectionInfo)
-    {
-        return connectionInfo.getUserName();
-    }
-
-    protected String getConnectionUserPassword(@NotNull DBPConnectionConfiguration connectionInfo)
-    {
-        return connectionInfo.getUserPassword();
-    }
-
     @Nullable
     protected Driver getDriverInstance(@NotNull DBRProgressMonitor monitor)
         throws DBException
     {
-        return Driver.class.cast(
-            container.getDriver().getDriverInstance(monitor));
+        return container.getDriver().getDriverInstance(monitor);
     }
 
     /**
@@ -613,13 +668,13 @@ public abstract class JDBCDataSource
      * @return predefined connection properties
      */
     @Nullable
-    protected Map<String, String> getInternalConnectionProperties(DBRProgressMonitor monitor, DBPDriver driver, String purpose, DBPConnectionConfiguration connectionInfo)
+    protected Map<String, String> getInternalConnectionProperties(DBRProgressMonitor monitor, DBPDriver driver, JDBCExecutionContext context, String purpose, DBPConnectionConfiguration connectionInfo)
         throws DBCException
     {
         return null;
     }
 
-    protected DBPDataSourceInfo createDataSourceInfo(@NotNull JDBCDatabaseMetaData metaData)
+    protected DBPDataSourceInfo createDataSourceInfo(DBRProgressMonitor monitor, @NotNull JDBCDatabaseMetaData metaData)
     {
         return new JDBCDataSourceInfo(metaData);
     }
@@ -668,7 +723,9 @@ public abstract class JDBCDataSource
     @Override
     public <T> T getAdapter(Class<T> adapter) {
         if (adapter == DBCTransactionManager.class) {
-            return adapter.cast(getDefaultInstance().getDefaultContext(false));
+            return adapter.cast(DBUtils.getDefaultContext(getDefaultInstance(), false));
+        } else if (adapter == DBCQueryTransformProvider.class) {
+            return adapter.cast(this);
         }
         return null;
     }
@@ -700,4 +757,5 @@ public abstract class JDBCDataSource
             throw new DBException(e, this);
         }
     }
+
 }

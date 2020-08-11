@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  * Copyright (C) 2011-2012 Eugene Fradkin (eugene.fradkin@gmail.com)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -24,9 +24,11 @@ import org.eclipse.swt.widgets.*;
 import org.jkiss.dbeaver.Log;
 import org.jkiss.dbeaver.model.DBPDataSourceContainer;
 import org.jkiss.dbeaver.model.preferences.DBPPreferenceStore;
+import org.jkiss.dbeaver.model.sql.SQLModelPreferences;
 import org.jkiss.dbeaver.ui.UIUtils;
 import org.jkiss.dbeaver.ui.editors.sql.SQLPreferenceConstants;
 import org.jkiss.dbeaver.ui.editors.sql.internal.SQLEditorMessages;
+import org.jkiss.dbeaver.ui.internal.UIMessages;
 import org.jkiss.dbeaver.ui.preferences.TargetPrefPage;
 import org.jkiss.dbeaver.utils.PrefUtils;
 
@@ -50,6 +52,7 @@ public class PrefPageSQLCompletion extends TargetPrefPage
     private Button csLongName;
     private Button csInsertSpace;
     private Button csSortAlphabetically;
+    private Button csInsertTableAlias;
     private Button csShowServerHelpTopics;
 
     private Button csMatchContains;
@@ -85,6 +88,7 @@ public class PrefPageSQLCompletion extends TargetPrefPage
             store.contains(SQLPreferenceConstants.PROPOSAL_ALWAYS_FQ) ||
             store.contains(SQLPreferenceConstants.INSERT_SPACE_AFTER_PROPOSALS) ||
             store.contains(SQLPreferenceConstants.PROPOSAL_SORT_ALPHABETICALLY) ||
+            store.contains(SQLModelPreferences.SQL_PROPOSAL_INSERT_TABLE_ALIAS) ||
 
             store.contains(SQLPreferenceConstants.PROPOSALS_MATCH_CONTAINS) ||
             store.contains(SQLPreferenceConstants.USE_GLOBAL_ASSISTANT) ||
@@ -116,7 +120,7 @@ public class PrefPageSQLCompletion extends TargetPrefPage
 
             csAutoActivationCheck = UIUtils.createCheckbox(assistGroup, SQLEditorMessages.pref_page_sql_completion_label_enable_auto_activation, SQLEditorMessages.pref_page_sql_completion_label_enable_auto_activation_tip, false, 2);
 
-            UIUtils.createControlLabel(assistGroup, SQLEditorMessages.pref_page_sql_completion_label_auto_activation_delay);
+            UIUtils.createControlLabel(assistGroup, SQLEditorMessages.pref_page_sql_completion_label_auto_activation_delay + UIMessages.label_ms);
             csAutoActivationDelaySpinner = new Spinner(assistGroup, SWT.BORDER);
             csAutoActivationDelaySpinner.setSelection(0);
             csAutoActivationDelaySpinner.setDigits(0);
@@ -148,6 +152,7 @@ public class PrefPageSQLCompletion extends TargetPrefPage
             csLongName = UIUtils.createCheckbox(assistGroup, SQLEditorMessages.pref_page_sql_completion_label_use_long_names, null, false, 2);
             csInsertSpace = UIUtils.createCheckbox(assistGroup, SQLEditorMessages.pref_page_sql_completion_label_insert_space, null, false, 2);
             csSortAlphabetically = UIUtils.createCheckbox(assistGroup, SQLEditorMessages.pref_page_sql_completion_label_sort_alphabetically, null, false, 2);
+            csInsertTableAlias = UIUtils.createCheckbox(assistGroup, SQLEditorMessages.pref_page_sql_completion_label_insert_table_alias, null, false, 2);
             csShowServerHelpTopics = UIUtils.createCheckbox(assistGroup, SQLEditorMessages.pref_page_sql_completion_label_show_server_help_topics, SQLEditorMessages.pref_page_sql_completion_label_show_server_help_topics_tip, false, 2);
         }
 
@@ -204,6 +209,7 @@ public class PrefPageSQLCompletion extends TargetPrefPage
             csLongName.setSelection(store.getBoolean(SQLPreferenceConstants.PROPOSAL_ALWAYS_FQ));
             csInsertSpace.setSelection(store.getBoolean(SQLPreferenceConstants.INSERT_SPACE_AFTER_PROPOSALS));
             csSortAlphabetically.setSelection(store.getBoolean(SQLPreferenceConstants.PROPOSAL_SORT_ALPHABETICALLY));
+            csInsertTableAlias.setSelection(store.getBoolean(SQLModelPreferences.SQL_PROPOSAL_INSERT_TABLE_ALIAS));
             csShowServerHelpTopics.setSelection(store.getBoolean(SQLPreferenceConstants.SHOW_SERVER_HELP_TOPICS));
 
             csMatchContains.setSelection(store.getBoolean(SQLPreferenceConstants.PROPOSALS_MATCH_CONTAINS));
@@ -236,6 +242,7 @@ public class PrefPageSQLCompletion extends TargetPrefPage
             store.setValue(SQLPreferenceConstants.PROPOSAL_ALWAYS_FQ, csLongName.getSelection());
             store.setValue(SQLPreferenceConstants.INSERT_SPACE_AFTER_PROPOSALS, csInsertSpace.getSelection());
             store.setValue(SQLPreferenceConstants.PROPOSAL_SORT_ALPHABETICALLY, csSortAlphabetically.getSelection());
+            store.setValue(SQLModelPreferences.SQL_PROPOSAL_INSERT_TABLE_ALIAS, csInsertTableAlias.getSelection());
             store.setValue(SQLPreferenceConstants.SHOW_SERVER_HELP_TOPICS, csShowServerHelpTopics.getSelection());
 
             store.setValue(SQLPreferenceConstants.PROPOSALS_MATCH_CONTAINS, csMatchContains.getSelection());
@@ -269,6 +276,7 @@ public class PrefPageSQLCompletion extends TargetPrefPage
         store.setToDefault(SQLPreferenceConstants.PROPOSAL_ALWAYS_FQ);
         store.setToDefault(SQLPreferenceConstants.INSERT_SPACE_AFTER_PROPOSALS);
         store.setToDefault(SQLPreferenceConstants.PROPOSAL_SORT_ALPHABETICALLY);
+        store.setToDefault(SQLModelPreferences.SQL_PROPOSAL_INSERT_TABLE_ALIAS);
         store.setToDefault(SQLPreferenceConstants.SHOW_SERVER_HELP_TOPICS);
 
         store.setToDefault(SQLPreferenceConstants.PROPOSALS_MATCH_CONTAINS);

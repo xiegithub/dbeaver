@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -39,6 +39,7 @@ import org.jkiss.dbeaver.model.struct.rdb.DBSTableConstraint;
 import org.jkiss.dbeaver.model.struct.rdb.DBSTableForeignKey;
 import org.jkiss.dbeaver.model.struct.rdb.DBSTableIndex;
 import org.jkiss.dbeaver.model.struct.rdb.DBSView;
+import org.jkiss.utils.CommonUtils;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -206,6 +207,8 @@ public class MySQLView extends MySQLTableBase implements DBSView
                         additionalInfo.setUpdatable("YES".equals(JDBCUtils.safeGetString(dbResult, MySQLConstants.COL_IS_UPDATABLE)));
                     }
                 }
+            } catch (SQLException e) {
+                throw new DBCException(e, session.getExecutionContext());
             }
             try (JDBCPreparedStatement dbStat = session.prepareStatement(
                 "SHOW CREATE VIEW " + getFullyQualifiedName(DBPEvaluationContext.DDL))) {
@@ -216,7 +219,11 @@ public class MySQLView extends MySQLTableBase implements DBSView
                             int divPos = definition.indexOf(" VIEW `");
                             if (divPos != -1) {
                                 additionalInfo.algorithm = parseAlgorithm(definition.substring(0, divPos));
-                                definition = "CREATE OR REPLACE " + definition.substring(divPos);
+                                String params = "";
+                                if (!CommonUtils.isEmpty(additionalInfo.algorithm)) {
+                                    params += " ALGORITHM=" + additionalInfo.algorithm + " ";
+                                }
+                                definition = "CREATE OR REPLACE " + params + definition.substring(divPos);
                             }
                         }
                         additionalInfo.setDefinition(
@@ -224,11 +231,10 @@ public class MySQLView extends MySQLTableBase implements DBSView
 
                     }
                 }
-
+            } catch (SQLException e) {
+                throw new DBCException(e, session.getExecutionContext());
             }
             additionalInfo.loaded = true;
-        } catch (SQLException e) {
-            throw new DBCException(e, getDataSource());
         }
     }
 

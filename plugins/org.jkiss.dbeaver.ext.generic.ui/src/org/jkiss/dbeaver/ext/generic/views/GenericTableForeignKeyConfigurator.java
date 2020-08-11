@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,7 +17,6 @@
 
 package org.jkiss.dbeaver.ext.generic.views;
 
-import org.jkiss.dbeaver.ext.generic.model.GenericTable;
 import org.jkiss.dbeaver.ext.generic.model.GenericTableColumn;
 import org.jkiss.dbeaver.ext.generic.model.GenericTableForeignKey;
 import org.jkiss.dbeaver.ext.generic.model.GenericTableForeignKeyColumnTable;
@@ -32,15 +31,15 @@ import org.jkiss.dbeaver.ui.editors.object.struct.EditForeignKeyPage;
 /**
  * Generic table foreign key configurator
  */
-public class GenericTableForeignKeyConfigurator implements DBEObjectConfigurator<GenericTable, GenericTableForeignKey> {
+public class GenericTableForeignKeyConfigurator implements DBEObjectConfigurator<GenericTableForeignKey> {
     @Override
-    public GenericTableForeignKey configureObject(DBRProgressMonitor monitor, GenericTable table, GenericTableForeignKey foreignKey) {
+    public GenericTableForeignKey configureObject(DBRProgressMonitor monitor, Object table, GenericTableForeignKey foreignKey) {
         return new UITask<GenericTableForeignKey>() {
             @Override
             protected GenericTableForeignKey runTask() {
                 EditForeignKeyPage editPage = new EditForeignKeyPage(
                     "Create foreign key",
-                    table,
+                    foreignKey,
                     new DBSForeignKeyModifyRule[] {
                         DBSForeignKeyModifyRule.NO_ACTION,
                         DBSForeignKeyModifyRule.CASCADE, DBSForeignKeyModifyRule.RESTRICT,

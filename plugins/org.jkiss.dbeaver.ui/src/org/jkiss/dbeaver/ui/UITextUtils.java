@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -50,6 +50,7 @@ public class UITextUtils {
         int w = gc.textExtent("...").x;
         String text = t;
         int l = text.length();
+        if (l > 500) l = 500; // Performance issue fix
         int pivot = l / 2;
         int s = pivot;
         int e = pivot + 1;
@@ -95,11 +96,11 @@ public class UITextUtils {
             return t;
         }
 
-        if (width <= 0) {
+        if (width <= 1) {
             return ""; //$NON-NLS-1$
         }
-        int avgCharWidth = fontMetrics.getAverageCharWidth();
-        float length = t.length();
+        double avgCharWidth = fontMetrics.getAverageCharacterWidth();
+        double length = t.length();
         if (width < length * avgCharWidth) {
             length = (float) width / avgCharWidth;
             length *= 2; // In case of big number of narrow characters

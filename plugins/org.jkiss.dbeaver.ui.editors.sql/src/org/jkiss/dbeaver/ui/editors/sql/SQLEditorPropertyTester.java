@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,8 +24,8 @@ import org.eclipse.jface.viewers.ISelection;
 import org.eclipse.jface.viewers.ISelectionProvider;
 import org.eclipse.swt.widgets.Control;
 import org.jkiss.dbeaver.model.exec.plan.DBCQueryPlanner;
-import org.jkiss.dbeaver.ui.ActionUtils;
 import org.jkiss.dbeaver.model.sql.parser.SQLIdentifierDetector;
+import org.jkiss.dbeaver.ui.ActionUtils;
 import org.jkiss.dbeaver.utils.GeneralUtils;
 
 /**
@@ -77,7 +77,7 @@ public class SQLEditorPropertyTester extends PropertyTester
                         !new SQLIdentifierDetector(
                             editor.getSyntaxManager().getDialect(),
                             editor.getSyntaxManager().getStructSeparator(),
-                            editor.getSyntaxManager().getQuoteStrings())
+                            editor.getSyntaxManager().getIdentifierQuoteStrings())
                             .detectIdentifier(document, new Region(selection.getOffset(), selection.getLength())).isEmpty();
             }
             case PROP_CAN_EXPORT:

@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  * Copyright (C) 2017-2018 Alexander Fedorov (alexander.fedorov@jkiss.org)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -22,12 +22,14 @@ import org.eclipse.core.commands.AbstractHandler;
 import org.eclipse.core.commands.ExecutionEvent;
 import org.eclipse.core.commands.ExecutionException;
 import org.eclipse.core.resources.IContainer;
+import org.eclipse.core.resources.IFolder;
 import org.eclipse.core.resources.IResource;
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.IStatus;
 import org.eclipse.core.runtime.OperationCanceledException;
 import org.eclipse.jface.operation.IRunnableContext;
+import org.eclipse.jface.viewers.ISelection;
 import org.eclipse.jface.viewers.IStructuredSelection;
 import org.eclipse.osgi.util.NLS;
 import org.eclipse.ui.IWorkbenchWindow;
@@ -49,11 +51,11 @@ public abstract class CreateLinkHandler extends AbstractHandler {
 
     @Override
     public Object execute(ExecutionEvent event) throws ExecutionException {
-        IStructuredSelection structured = HandlerUtil.getCurrentStructuredSelection(event);
-        if (structured.isEmpty()) {
+        ISelection structured = HandlerUtil.getCurrentSelection(event);
+        if (structured.isEmpty() || !(structured instanceof IStructuredSelection)) {
             return null;
         }
-        Object first = structured.getFirstElement();
+        Object first = ((IStructuredSelection)structured).getFirstElement();
         IResource resource = GeneralUtils.adapt(first, IResource.class);
         IContainer container = extractContainer(resource);
         if (container == null) {
@@ -73,7 +75,11 @@ public abstract class CreateLinkHandler extends AbstractHandler {
 
             @Override
             protected void execute(IProgressMonitor monitor)
-                    throws CoreException, InvocationTargetException, InterruptedException {
+                    throws CoreException {
+                if (container instanceof IFolder && !container.exists()) {
+                    // Create parent folder
+                    ((IFolder) container).create(true, true, monitor);
+                }
                 IStatus linked = createLink(container, monitor, locations);
                 int severity = linked.getSeverity();
                 switch (severity) {

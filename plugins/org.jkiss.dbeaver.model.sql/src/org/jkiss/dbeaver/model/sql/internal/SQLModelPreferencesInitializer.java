@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -35,6 +35,7 @@ public class SQLModelPreferencesInitializer extends AbstractPreferenceInitialize
 
         // Common
         PrefUtils.setDefaultPreferenceValue(store, SQLModelPreferences.SQL_FORMAT_FORMATTER, SQLFormatterTokenized.FORMATTER_ID);
+        PrefUtils.setDefaultPreferenceValue(store, SQLModelPreferences.SQL_PROPOSAL_INSERT_TABLE_ALIAS, true);
     }
 
 }

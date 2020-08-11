@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -105,13 +105,17 @@ public class SQLServerSynonym implements DBSAlias, DBSObject, DBPQualifiedObject
     @Property(viewable = true, order = 20)
     @Override
     public DBSObject getTargetObject(DBRProgressMonitor monitor) throws DBException {
+        String schemaName;
+        String objectName;
+
         int divPos = targetObjectName.indexOf("].[");
         if (divPos == -1) {
-            log.debug("Bad target object name '" + targetObjectName + "' for synonym '" + getName() + "'");
-            return null;
+            schemaName = schema.getName();
+            objectName = DBUtils.getUnQuotedIdentifier(getDataSource(), targetObjectName);
+        } else {
+            schemaName = DBUtils.getUnQuotedIdentifier(getDataSource(), targetObjectName.substring(0, divPos + 1));
+            objectName = DBUtils.getUnQuotedIdentifier(getDataSource(), targetObjectName.substring(divPos + 2));
         }
-        String schemaName = DBUtils.getUnQuotedIdentifier(getDataSource(), targetObjectName.substring(0, divPos + 1));
-        String objectName = DBUtils.getUnQuotedIdentifier(getDataSource(), targetObjectName.substring(divPos + 2));
         SQLServerSchema targetSchema = schema.getDatabase().getSchema(monitor, schemaName);
         if (targetSchema == null) {
             log.debug("Schema '" + schemaName + "' not found for synonym '" + getName() + "'");

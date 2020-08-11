@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,10 +23,12 @@ import org.eclipse.swt.widgets.Composite;
 import org.eclipse.ui.IActionBars;
 import org.eclipse.ui.IEditorPart;
 import org.eclipse.ui.part.MultiPageEditorPart;
+import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
 import org.jkiss.dbeaver.Log;
 import org.jkiss.dbeaver.model.DBPEvaluationContext;
 import org.jkiss.dbeaver.model.DBUtils;
+import org.jkiss.dbeaver.model.app.DBPProject;
 import org.jkiss.dbeaver.model.data.DBDDataFilter;
 import org.jkiss.dbeaver.model.exec.DBCExecutionContext;
 import org.jkiss.dbeaver.model.navigator.DBNDatabaseNode;
@@ -34,10 +36,10 @@ import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
 import org.jkiss.dbeaver.model.struct.DBSDataContainer;
 import org.jkiss.dbeaver.model.struct.DBSObject;
 import org.jkiss.dbeaver.ui.UIUtils;
-import org.jkiss.dbeaver.ui.editors.entity.IEntityDataContainer;
-import org.jkiss.dbeaver.ui.navigator.actions.NavigatorHandlerObjectOpen;
 import org.jkiss.dbeaver.ui.controls.resultset.*;
 import org.jkiss.dbeaver.ui.editors.AbstractDatabaseObjectEditor;
+import org.jkiss.dbeaver.ui.editors.entity.IEntityDataEditor;
+import org.jkiss.dbeaver.ui.navigator.actions.NavigatorHandlerObjectOpen;
 import org.jkiss.dbeaver.utils.RuntimeUtils;
 
 import java.util.Collections;
@@ -46,19 +48,25 @@ import java.util.Collections;
  * AbstractDataEditor
  */
 public abstract class AbstractDataEditor<OBJECT_TYPE extends DBSObject> extends AbstractDatabaseObjectEditor<OBJECT_TYPE>
-    implements IResultSetContainer,IResultSetListener,IEntityDataContainer
+    implements IResultSetContainer,IResultSetListener,IEntityDataEditor
 {
+    public static final String CONTENT_TYPE_DATA_ID = "org.jkiss.dbeaver.data";
+    public static final String CONTENT_TYPE_DATA_EXT = "databasedata";
+
     private static final Log log = Log.getLog(AbstractDataEditor.class);
 
     private ResultSetViewer resultSetView;
     private boolean loaded = false;
     //private boolean running = false;
     private Composite parent;
+    private DBPProject project;
 
     @Override
     public void createPartControl(Composite parent)
     {
         this.parent = parent;
+        // Cache project here. It may be inaccessible thru db object in case of later disconnect
+        this.project = getDatabaseObject().getDataSource().getContainer().getProject();
     }
 
     @Override
@@ -69,12 +77,7 @@ public abstract class AbstractDataEditor<OBJECT_TYPE extends DBSObject> extends 
         if (!loaded && !isSuspendDataQuery()) {
             if (isReadyToRun()) {
                 resultSetView.setStatus(getDataQueryMessage());
-                DBDDataFilter dataFilter = getEditorDataFilter();
-                if (dataFilter == null) {
-                    resultSetView.refresh();
-                } else {
-                    resultSetView.refreshWithFilter(dataFilter);
-                }
+                refreshWithFilters();
                 loaded = true;
             }
         }
@@ -114,6 +117,12 @@ public abstract class AbstractDataEditor<OBJECT_TYPE extends DBSObject> extends 
         super.dispose();
     }
 
+    @NotNull
+    @Override
+    public DBPProject getProject() {
+        return project;
+    }
+
     @Nullable
     @Override
     public ResultSetViewer getResultSetController()
@@ -128,7 +137,7 @@ public abstract class AbstractDataEditor<OBJECT_TYPE extends DBSObject> extends 
     }
 
     @Override
-    public void openNewContainer(DBRProgressMonitor monitor, DBSDataContainer dataContainer, DBDDataFilter newFilter) {
+    public void openNewContainer(DBRProgressMonitor monitor, @NotNull DBSDataContainer dataContainer, @NotNull DBDDataFilter newFilter) {
         final DBCExecutionContext executionContext = getExecutionContext();
         if (executionContext == null) {
             log.error("Can't open new container - not execution context found");
@@ -198,7 +207,7 @@ public abstract class AbstractDataEditor<OBJECT_TYPE extends DBSObject> extends 
     public void doSave(IProgressMonitor monitor)
     {
         if (resultSetView != null && resultSetView.isDirty()) {
-            if (!resultSetView.applyChanges(RuntimeUtils.makeMonitor(monitor))) {
+            if (!resultSetView.applyChanges(RuntimeUtils.makeMonitor(monitor), new ResultSetSaveSettings())) {
                 monitor.setCanceled(true);
             }
         }
@@ -238,7 +247,16 @@ public abstract class AbstractDataEditor<OBJECT_TYPE extends DBSObject> extends 
     @Override
     public void refreshPart(Object source, boolean force) {
         if (force && resultSetView != null && resultSetView.hasData() && !resultSetView.isRefreshInProgress()) {
+            refreshWithFilters();
+        }
+    }
+
+    private void refreshWithFilters() {
+        DBDDataFilter dataFilter = getEditorDataFilter();
+        if (dataFilter == null) {
             resultSetView.refresh();
+        } else {
+            resultSetView.refreshWithFilter(dataFilter);
         }
     }
 

@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,10 +24,14 @@ import org.jkiss.dbeaver.model.DBUtils;
 import org.jkiss.dbeaver.model.struct.DBSAttributeBase;
 import org.jkiss.utils.CommonUtils;
 
+import java.util.Arrays;
+
 /**
  * Attribute constraint
  */
 public class DBDAttributeConstraint extends DBDAttributeConstraintBase {
+
+//    public static final String FEATURE_HIDDEN = "hidden";
 
     @Nullable
     private DBSAttributeBase attribute;
@@ -57,6 +61,10 @@ public class DBDAttributeConstraint extends DBDAttributeConstraintBase {
         this.originalVisualPosition = source.originalVisualPosition;
     }
 
+    public static boolean isVisibleByDefault(DBDAttributeBinding binding) {
+        return !binding.isPseudoAttribute();
+    }
+
     @Nullable
     public DBSAttributeBase getAttribute() {
         return attribute;
@@ -84,7 +92,8 @@ public class DBDAttributeConstraint extends DBDAttributeConstraintBase {
 
     @Override
     public boolean hasFilter() {
-        return super.hasFilter() || originalVisualPosition != getVisualPosition();
+        return super.hasFilter() || // compare visual position only if it explicitly set
+            (getVisualPosition() != NULL_VISUAL_POSITION && originalVisualPosition != getVisualPosition());
     }
 
     public void reset() {
@@ -126,8 +135,11 @@ public class DBDAttributeConstraint extends DBDAttributeConstraintBase {
 
     public boolean matches(DBSAttributeBase attr, boolean matchByName) {
         return attribute == attr ||
-            (attribute instanceof DBDAttributeBinding && ((DBDAttributeBinding) attribute).matches(attr, matchByName)) ||
-            (matchByName && attributeName.equals(attr.getName()));
+            (attribute instanceof DBDAttributeBinding && ((DBDAttributeBinding) attribute).matches(attr, matchByName));
     }
 
+    public boolean equalVisibility(DBDAttributeConstraint constraint) {
+        return isVisible() == constraint.isVisible() && getVisualPosition() == constraint.getVisualPosition() &&
+            Arrays.equals(getOptions(), constraint.getOptions());
+    }
 }

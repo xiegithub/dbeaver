@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -130,7 +130,7 @@ public class CommonUtils {
 
     public static String toCamelCase(String str) {
         if (isEmpty(str)) {
-            return null;
+            return str;
         }
 
         final StringBuilder ret = new StringBuilder(str.length());
@@ -275,6 +275,21 @@ public class CommonUtils {
         return equalObjects(s1, s2) || (isEmpty(s1) && isEmpty(s2));
     }
 
+    public static boolean equalsContents(@Nullable Collection<?> c1, @Nullable Collection<?> c2) {
+        if (CommonUtils.isEmpty(c1) && CommonUtils.isEmpty(c2)) {
+            return true;
+        }
+        if (c1 == null || c2 == null || c1.size() != c2.size()) {
+            return false;
+        }
+        for (Object o : c1) {
+            if (!c2.contains(o)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     @NotNull
     public static String toString(@Nullable Object object) {
         if (object == null) {
@@ -309,7 +324,11 @@ public class CommonUtils {
             try {
                 return Integer.parseInt(toString(object));
             } catch (NumberFormatException e) {
-                return def;
+                try {
+                    return (int)Double.parseDouble(toString(object));
+                } catch (NumberFormatException e1) {
+                    return def;
+                }
             }
         }
     }
@@ -345,7 +364,11 @@ public class CommonUtils {
             try {
                 return Long.parseLong(toString(object));
             } catch (NumberFormatException e) {
-                return defValue;
+                try {
+                    return (int)Double.parseDouble(toString(object));
+                } catch (NumberFormatException e1) {
+                    return defValue;
+                }
             }
         }
     }
@@ -387,6 +410,34 @@ public class CommonUtils {
         } else {
             try {
                 return Double.parseDouble(toString(object));
+            } catch (NumberFormatException e) {
+                return def;
+            }
+        }
+    }
+
+    public static float toFloat(@Nullable Object object) {
+        if (object == null) {
+            return 0.0f;
+        } else if (object instanceof Number) {
+            return ((Number) object).floatValue();
+        } else {
+            try {
+                return Float.parseFloat(toString(object));
+            } catch (NumberFormatException e) {
+                return Float.NaN;
+            }
+        }
+    }
+
+    public static float toFloat(@Nullable Object object, float def) {
+        if (object == null) {
+            return def;
+        } else if (object instanceof Number) {
+            return ((Number) object).floatValue();
+        } else {
+            try {
+                return Float.parseFloat(toString(object));
             } catch (NumberFormatException e) {
                 return def;
             }
@@ -519,6 +570,10 @@ public class CommonUtils {
         return (value & mask) == mask;
     }
 
+    public static boolean isBitSet(long value, long mask) {
+        return (value & mask) == mask;
+    }
+
     @Nullable
     public static <T extends Enum<T>> T valueOf(@NotNull Class<T> type, @Nullable String name) {
         return valueOf(type, name, null, false);
@@ -641,10 +696,15 @@ public class CommonUtils {
             return false;
         }
         Object optionValue = options.get(name);
-        if (optionValue == null) {
-            return defValue;
+        return getBoolean(optionValue, defValue);
+    }
+
+    public static Map<String, Object> makeStringMap(Map<Object, Object> objMap) {
+        Map<String, Object> strMap = new LinkedHashMap<>(objMap.size());
+        for (Map.Entry<Object, Object> e : objMap.entrySet()) {
+            strMap.put(toString(e.getKey(), null), e.getValue());
         }
-        return Boolean.TRUE.equals(optionValue);
+        return strMap;
     }
 
     public static String fixedLengthString(String string, int length) {
@@ -726,5 +786,19 @@ public class CommonUtils {
             }
         }
         return buf.toString();
+    }
+
+    public static boolean isSameDay(@NotNull Date date1, @NotNull Date date2) {
+        Calendar cal1 = Calendar.getInstance();
+        cal1.setTime(date1);
+        Calendar cal2 = Calendar.getInstance();
+        cal2.setTime(date2);
+        return isSameDay(cal1, cal2);
+    }
+
+    public static boolean isSameDay(@NotNull Calendar cal1, @NotNull Calendar cal2) {
+        return (cal1.get(Calendar.ERA) == cal2.get(Calendar.ERA) &&
+            cal1.get(Calendar.YEAR) == cal2.get(Calendar.YEAR) &&
+            cal1.get(Calendar.DAY_OF_YEAR) == cal2.get(Calendar.DAY_OF_YEAR));
     }
 }

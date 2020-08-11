@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -45,7 +45,7 @@ import java.util.UUID;
 public class UUIDOrderedAttributeTransformer implements DBDAttributeTransformer {
 
     @Override
-    public void transformAttribute(@NotNull DBCSession session, @NotNull DBDAttributeBinding attribute, @NotNull List<Object[]> rows, @NotNull Map<String, String> options) throws DBException {
+    public void transformAttribute(@NotNull DBCSession session, @NotNull DBDAttributeBinding attribute, @NotNull List<Object[]> rows, @NotNull Map<String, Object> options) throws DBException {
         attribute.setPresentationAttribute(
             new TransformerPresentationAttribute(attribute, "UUID (Ordered)", 16, DBPDataKind.BINARY));
 
@@ -66,7 +66,7 @@ public class UUIDOrderedAttributeTransformer implements DBDAttributeTransformer 
             } else if (value instanceof JDBCContentBytes) {
                 bytes = ((JDBCContentBytes) value).getRawValue();
             }
-            if (bytes != null) {
+            if (bytes != null && bytes.length >= 16) {
             	// byte shift operations from Ebean ORM project pull request #1308 
             	long mostSigBits = ((long)bytes[4] << 56) // XXXXXXXX-____-____-...
         			+ ((long)(bytes[5] & 255) << 48)

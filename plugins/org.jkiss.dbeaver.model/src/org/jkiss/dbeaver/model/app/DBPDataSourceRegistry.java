@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,16 +17,19 @@
 
 package org.jkiss.dbeaver.model.app;
 
-import org.eclipse.core.resources.IProject;
+import org.eclipse.core.resources.IFile;
 import org.eclipse.equinox.security.storage.ISecurePreferences;
 import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
 import org.jkiss.dbeaver.model.*;
+import org.jkiss.dbeaver.model.access.DBAAuthProfile;
 import org.jkiss.dbeaver.model.connection.DBPConnectionConfiguration;
 import org.jkiss.dbeaver.model.connection.DBPDriver;
+import org.jkiss.dbeaver.model.net.DBWNetworkProfile;
 import org.jkiss.dbeaver.model.struct.DBSObjectFilter;
 
 import java.util.List;
+import java.util.function.Function;
 
 /**
  * Datasource registry.
@@ -34,16 +37,22 @@ import java.util.List;
  */
 public interface DBPDataSourceRegistry extends DBPObject {
 
-    String CONFIG_FILE_PREFIX = ".dbeaver-data-sources"; //$NON-NLS-1$
-    String CONFIG_FILE_EXT = ".xml"; //$NON-NLS-1$
-    String CONFIG_FILE_NAME = CONFIG_FILE_PREFIX + CONFIG_FILE_EXT;
+    String LEGACY_CONFIG_FILE_PREFIX = ".dbeaver-data-sources"; //$NON-NLS-1$
+    String LEGACY_CONFIG_FILE_EXT = ".xml"; //$NON-NLS-1$
+    String LEGACY_CONFIG_FILE_NAME = LEGACY_CONFIG_FILE_PREFIX + LEGACY_CONFIG_FILE_EXT;
+
+    String MODERN_CONFIG_FILE_PREFIX = "data-sources"; //$NON-NLS-1$
+    String MODERN_CONFIG_FILE_EXT = ".json"; //$NON-NLS-1$
+    String MODERN_CONFIG_FILE_NAME = MODERN_CONFIG_FILE_PREFIX + MODERN_CONFIG_FILE_EXT;
+    String CREDENTIALS_CONFIG_FILE_PREFIX = "credentials-config"; //$NON-NLS-1$
+    String CREDENTIALS_CONFIG_FILE_EXT = ".json"; //$NON-NLS-1$
 
     @NotNull
     DBPPlatform getPlatform();
     /**
      * Owner project.
      */
-    IProject getProject();
+    DBPProject getProject();
 
     @Nullable
     DBPDataSourceContainer getDataSource(String id);
@@ -54,24 +63,35 @@ public interface DBPDataSourceRegistry extends DBPObject {
     @Nullable
     DBPDataSourceContainer findDataSourceByName(String name);
 
+    @NotNull
+    List<? extends DBPDataSourceContainer> getDataSourcesByProfile(@NotNull DBWNetworkProfile profile);
+
+    @NotNull
     List<? extends DBPDataSourceContainer> getDataSources();
 
+    @NotNull
     DBPDataSourceContainer createDataSource(DBPDriver driver, DBPConnectionConfiguration connConfig);
 
+    @NotNull
     DBPDataSourceContainer createDataSource(DBPDataSourceContainer source);
 
-    void addDataSourceListener(DBPEventListener listener);
+    void addDataSourceListener(@NotNull DBPEventListener listener);
 
-    boolean removeDataSourceListener(DBPEventListener listener);
+    boolean removeDataSourceListener(@NotNull DBPEventListener listener);
 
-    void addDataSource(DBPDataSourceContainer dataSource);
+    void addDataSource(@NotNull DBPDataSourceContainer dataSource);
 
-    void removeDataSource(DBPDataSourceContainer dataSource);
+    void removeDataSource(@NotNull DBPDataSourceContainer dataSource);
 
-    void updateDataSource(DBPDataSourceContainer dataSource);
+    void updateDataSource(@NotNull DBPDataSourceContainer dataSource);
 
+    @NotNull
+    List<? extends DBPDataSourceContainer> loadDataSourcesFromFile(@NotNull DBPDataSourceConfigurationStorage configurationStorage, @NotNull IFile fromFile);
+
+    @NotNull
     List<? extends DBPDataSourceFolder> getAllFolders();
 
+    @NotNull
     List<? extends DBPDataSourceFolder> getRootFolders();
 
     DBPDataSourceFolder getFolder(String path);
@@ -80,20 +100,37 @@ public interface DBPDataSourceRegistry extends DBPObject {
 
     void removeFolder(DBPDataSourceFolder folder, boolean dropContents);
 
-    DBPDataSourceRegistry createCopy(IProject project, boolean copyDataSources);
+    DBPDataSourceRegistry createCopy(DBPProject project, Function<DBPDataSourceContainer, Boolean> filter);
 
     @Nullable
     DBSObjectFilter getSavedFilter(String name);
-
     @NotNull
     List<DBSObjectFilter> getSavedFilters();
-
     void updateSavedFilter(DBSObjectFilter filter);
-
     void removeSavedFilter(String filterName);
 
-    void flushConfig();
+    // Network profiles
 
+    @Nullable
+    DBWNetworkProfile getNetworkProfile(String name);
+    @NotNull
+    List<DBWNetworkProfile> getNetworkProfiles();
+    void updateNetworkProfile(DBWNetworkProfile profile);
+    void removeNetworkProfile(DBWNetworkProfile profile);
+
+    // Auth profiles
+
+    @Nullable
+    DBAAuthProfile getAuthProfile(String id);
+    @NotNull
+    List<DBAAuthProfile> getAllAuthProfiles();
+    @NotNull
+    List<DBAAuthProfile> getApplicableAuthProfiles(@Nullable DBPDriver driver);
+    void updateAuthProfile(DBAAuthProfile profile);
+    void removeAuthProfile(DBAAuthProfile profile);
+
+
+    void flushConfig();
     void refreshConfig();
 
     void notifyDataSourceListeners(final DBPEvent event);
@@ -102,4 +139,5 @@ public interface DBPDataSourceRegistry extends DBPObject {
     ISecurePreferences getSecurePreferences();
 
     void dispose();
+
 }

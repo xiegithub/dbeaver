@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,8 +18,8 @@ package org.jkiss.dbeaver.ui.editors.sql;
 
 import org.jkiss.dbeaver.model.DBPDataSourceContainer;
 import org.jkiss.dbeaver.model.connection.DBPConnectionConfiguration;
-import org.jkiss.dbeaver.model.connection.DataSourceUtils;
 import org.jkiss.dbeaver.model.net.DBWHandlerConfiguration;
+import org.jkiss.dbeaver.registry.DataSourceUtils;
 import org.jkiss.dbeaver.ui.editors.sql.internal.SQLEditorMessages;
 import org.jkiss.utils.CommonUtils;
 
@@ -75,14 +75,14 @@ public enum SQLScriptBindingType {
             if (!CommonUtils.isEmpty(cfg.getUserName())) {
                 params.put(DataSourceUtils.PARAM_USER, cfg.getUserName());
             }
-            for (DBWHandlerConfiguration handler : cfg.getDeclaredHandlers()) {
+            for (DBWHandlerConfiguration handler : cfg.getHandlers()) {
                 if (!handler.isEnabled()) {
                     continue;
                 }
-                for (Map.Entry<String, String> prop : handler.getProperties().entrySet()) {
+                for (Map.Entry<String, Object> prop : handler.getProperties().entrySet()) {
                     String propName = prop.getKey();
                     if (propName.contains(DataSourceUtils.PARAM_SERVER) || propName.contains(DataSourceUtils.PARAM_HOST) || propName.contains(DataSourceUtils.PARAM_PORT)) {
-                        params.put("handler." + handler.getId() + "." + propName, prop.getValue());
+                        params.put("handler." + handler.getId() + "." + propName, CommonUtils.toString(prop.getValue()));
                     }
                 }
             }

@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -40,6 +40,8 @@ public class PostgreConstants {
 
     public static final String PROP_SHOW_NON_DEFAULT_DB = DBConstants.INTERNAL_PROP_PREFIX + "show-non-default-db@";
     public static final String PROP_SHOW_TEMPLATES_DB = DBConstants.INTERNAL_PROP_PREFIX + "show-template-db@";
+    public static final String PROP_DD_PLAIN_STRING = "postgresql.dd.plain.string";
+    public static final String PROP_DD_TAG_STRING = "postgresql.dd.tag.string";
 
     public static final String PROP_SSL = "ssl";
 
@@ -48,6 +50,7 @@ public class PostgreConstants {
     public static final String PROP_SSL_ROOT_CERT = "rootCert";
     public static final String PROP_SSL_MODE = "sslMode";
     public static final String PROP_SSL_FACTORY = "sslFactory";
+    public static final String PROP_SSL_PROXY = "sslProxyServer";
     public static final String PROP_SERVER_TYPE = "serverType";
 
     public static final String OPTION_DDL_SHOW_PERMISSIONS = "pg.ddl.show.permissions";
@@ -55,8 +58,8 @@ public class PostgreConstants {
     public static final String OPTION_DDL_SHOW_FULL = "pg.ddl.show.full";
 
     public static final DBSObjectState STATE_UNAVAILABLE = new DBSObjectState("Unavailable", DBIcon.OVER_EXTERNAL);
-    public static final DBSEntityConstraintType CONSTRAINT_TRIGGER = new DBSEntityConstraintType("trigger", "TRIGGER", "Trigger constraint", false, false, false); //$NON-NLS-1$
-    public static final DBSEntityConstraintType CONSTRAINT_EXCLUSIVE = new DBSEntityConstraintType("exclusive", "EXCLUSIVE", "Exclusive constraint", false, false, false); //$NON-NLS-1$
+    public static final DBSEntityConstraintType CONSTRAINT_TRIGGER = new DBSEntityConstraintType("trigger", "TRIGGER", "Trigger constraint", false, false, false, false); //$NON-NLS-1$
+    public static final DBSEntityConstraintType CONSTRAINT_EXCLUSIVE = new DBSEntityConstraintType("exclusive", "EXCLUSIVE", "Exclusive constraint", false, false, false, false); //$NON-NLS-1$
 
     public static final String INFO_SCHEMA_NAME = "information_schema";
     public static final String SYSTEM_SCHEMA_PREFIX = "pg_";
@@ -88,7 +91,7 @@ public class PostgreConstants {
     public static final String HANDLER_SSL = "postgre_ssl";
 
     /**
-     * @see https://www.postgresql.org/docs/9.2/static/errcodes-appendix.html
+     * @see [https://www.postgresql.org/docs/9.2/static/errcodes-appendix.html]
      */
     public static final String EC_PERMISSION_DENIED = "42501"; //$NON-NLS-1$
     public static final String EC_QUERY_CANCELED = "57014"; //$NON-NLS-1$
@@ -104,6 +107,7 @@ public class PostgreConstants {
     public static final Map<String, String> DATA_TYPE_ALIASES = new HashMap<>();
     public static final Map<String, String> DATA_TYPE_CANONICAL_NAMES = new HashMap<>();
 
+    public static final String TYPE_BOOL = "bool";
     public static final String TYPE_INT2 = "int2";
     public static final String TYPE_INT4 = "int4";
     public static final String TYPE_INT8 = "int8";
@@ -111,10 +115,14 @@ public class PostgreConstants {
     public static final String TYPE_FLOAT8 = "float8";
 
     public static final String ERROR_ADMIN_SHUTDOWN = "57P01";
+    public static final String ERROR_TRANSACTION_ABORTED = "25P02";
+
     public static final String PSQL_EXCEPTION_CLASS_NAME = "org.postgresql.util.PSQLException";
     public static final String COLLATION_DEFAULT = "default";
+    public static final String DEFAULT_ARRAY_DELIMITER = " ";
 
     static {
+        DATA_TYPE_ALIASES.put("boolean", TYPE_BOOL);
         DATA_TYPE_ALIASES.put("integer", TYPE_INT4);
         DATA_TYPE_ALIASES.put("int", TYPE_INT4);
         DATA_TYPE_ALIASES.put("bigint", TYPE_INT8);

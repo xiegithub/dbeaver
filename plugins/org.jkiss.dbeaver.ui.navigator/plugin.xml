@@ -4,6 +4,7 @@
 <plugin>
 
     <extension-point id="org.jkiss.dbeaver.databaseEditor" name="%extension-point.org.jkiss.dbeaver.databaseEditor.name" schema="schema/org.jkiss.dbeaver.databaseEditor.exsd"/>
+    <extension-point id="org.jkiss.dbeaver.navigator.nodeAction" name="%extension-point.org.jkiss.dbeaver.navigator.nodeAction.name" schema="schema/org.jkiss.dbeaver.navigator.nodeAction.exsd"/>
 
     <extension point="org.eclipse.core.runtime.adapters">
         <factory adaptableType="org.jkiss.dbeaver.model.DBPObject" class="org.jkiss.dbeaver.ui.navigator.NavigatorAdapterFactory">
@@ -26,7 +27,7 @@
             <adapter type="org.eclipse.ui.model.IWorkbenchAdapter"/>
         </factory>
 
-        <factory adaptableType="org.jkiss.dbeaver.model.struct.DBSObject" class="org.jkiss.dbeaver.ui.navigator.NavigatorConfiguratorFactory">
+        <factory adaptableType="org.jkiss.dbeaver.model.DBPObject" class="org.jkiss.dbeaver.ui.navigator.NavigatorConfiguratorFactory">
             <adapter type="org.jkiss.dbeaver.model.edit.DBEObjectConfigurator"/>
         </factory>
     </extension>
@@ -34,33 +35,41 @@
     <extension point="org.eclipse.ui.views">
         <category id="org.jkiss.dbeaver.core.category" name="%category.org.jkiss.dbeaver.core.category.name"/>
         <view
-                id="org.jkiss.dbeaver.core.databaseNavigator"
-                category="org.jkiss.dbeaver.core.category"
-                class="org.jkiss.dbeaver.ui.navigator.database.DatabaseNavigatorView"
-                allowMultiple="false"
-                icon="platform:/plugin/org.jkiss.dbeaver.ui/icons/databases.png"
-                name="%view.database.navigator.title"/>
+            id="org.jkiss.dbeaver.core.databaseNavigator"
+            category="org.jkiss.dbeaver.core.category"
+            class="org.jkiss.dbeaver.ui.navigator.database.DatabaseNavigatorView"
+            allowMultiple="false"
+            icon="platform:/plugin/org.jkiss.dbeaver.ui/icons/databases.png"
+            name="%view.database.navigator.title">
+            <description>%view.database.navigator.description</description>
+        </view>
         <view
-                id="org.jkiss.dbeaver.core.databaseBrowser"
-                category="org.jkiss.dbeaver.core.category"
-                class="org.jkiss.dbeaver.ui.navigator.database.DatabaseBrowserView"
-                allowMultiple="true"
-                icon="platform:/plugin/org.jkiss.dbeaver.ui/icons/database_navigator.png"
-                name="%view.database.browser.title"/>
+            id="org.jkiss.dbeaver.core.databaseBrowser"
+            category="org.jkiss.dbeaver.core.category"
+            class="org.jkiss.dbeaver.ui.navigator.database.DatabaseBrowserView"
+            allowMultiple="true"
+            icon="platform:/plugin/org.jkiss.dbeaver.ui/icons/database_navigator.png"
+            name="%view.database.browser.title">
+            <description>%view.database.browser.description</description>
+        </view>
         <view
-                id="org.jkiss.dbeaver.core.projectNavigator"
-                category="org.jkiss.dbeaver.core.category"
-                class="org.jkiss.dbeaver.ui.navigator.project.ProjectNavigatorView"
-                allowMultiple="false"
-                icon="platform:/plugin/org.jkiss.dbeaver.ui/icons/projects.png"
-                name="%view.project.navigator.title"/>
+            id="org.jkiss.dbeaver.core.projectNavigator"
+            category="org.jkiss.dbeaver.core.category"
+            class="org.jkiss.dbeaver.ui.navigator.project.ProjectNavigatorView"
+            allowMultiple="false"
+            icon="platform:/plugin/org.jkiss.dbeaver.ui/icons/projects.png"
+            name="%view.project.navigator.title">
+            <description>%view.project.navigator.description</description>
+        </view>
         <view
-                id="org.jkiss.dbeaver.core.projectExplorer"
-                category="org.jkiss.dbeaver.core.category"
-                class="org.jkiss.dbeaver.ui.navigator.project.ProjectExplorerView"
-                allowMultiple="false"
-                icon="platform:/plugin/org.jkiss.dbeaver.ui/icons/project.png"
-                name="%view.project.explorer.title"/>
+            id="org.jkiss.dbeaver.core.projectExplorer"
+            category="org.jkiss.dbeaver.core.category"
+            class="org.jkiss.dbeaver.ui.navigator.project.ProjectExplorerView"
+            allowMultiple="false"
+            icon="platform:/plugin/org.jkiss.dbeaver.ui/icons/project.png"
+            name="%view.project.explorer.title">
+            <description>%view.project.explorer.description</description>
+        </view>
     </extension>
 
     <extension point="org.eclipse.ui.newWizards">
@@ -82,7 +91,7 @@
                 <instanceof value="org.jkiss.dbeaver.ui.navigator.database.NavigatorViewBase"/>
             </enabledWhen>
         </page>
-        <page class="org.jkiss.dbeaver.ui.preferences.PrefPageProjectSettings" id="org.jkiss.dbeaver.preferences.projectSettings" name="%page.org.jkiss.dbeaver.preferences.projectSettings.name">
+        <page class="org.jkiss.dbeaver.ui.project.PrefPageProjectResourceSettings" id="org.jkiss.dbeaver.preferences.projectSettings" name="%page.org.jkiss.dbeaver.preferences.projectSettings.name" >
             <enabledWhen>
                 <adapt type="org.eclipse.core.resources.IProject">
                     <test property="org.eclipse.core.resources.projectNature" value="org.jkiss.dbeaver.DBeaverNature"/>
@@ -108,12 +117,6 @@
             namespace="org.jkiss.dbeaver.core.object"
             properties="canOpen,canCreateSingle,canCreateMulti,canPaste,canDelete,canRename,canMoveUp,canMoveDown,canFilter,canFilterObject,hasFilter"
             type="org.jkiss.dbeaver.model.navigator.DBNNode"/>
-        <propertyTester
-            class="org.jkiss.dbeaver.ui.actions.ToolsPropertyTester"
-            id="org.jkiss.dbeaver.ui.actions.ToolsPropertyTester"
-            namespace="org.jkiss.dbeaver.core.tools"
-            properties="hasTools"
-            type="org.eclipse.ui.IWorkbenchPart"/>
 
         <propertyTester
             class="org.jkiss.dbeaver.ui.navigator.ResourcePropertyTester"
@@ -133,6 +136,12 @@
             namespace="org.jkiss.dbeaver.ui.editors.folder"
             properties="canNavigate"
             type="org.jkiss.dbeaver.ui.editors.entity.FolderEditor"/>
+        <propertyTester
+            class="org.jkiss.dbeaver.ui.navigator.NavigatorPropertyTester"
+            id="org.jkiss.dbeaver.ui.navigator.NavigatorPropertyTester"
+            namespace="org.jkiss.dbeaver.core.navigator"
+            properties="active,focused"
+            type="org.eclipse.ui.IWorkbenchPart"/>
     </extension>
 
     <extension point="org.eclipse.ui.editors">
@@ -150,15 +159,6 @@
                 class="org.jkiss.dbeaver.ui.editors.entity.EntityEditor"
                 id="org.jkiss.dbeaver.ui.editors.entity.EntityEditor">
         </editor>
-    </extension>
-
-    <extension point="org.eclipse.core.expressions.propertyTesters">
-        <propertyTester
-                class="org.jkiss.dbeaver.ui.navigator.NavigatorPropertyTester"
-                id="org.jkiss.dbeaver.ui.navigator.NavigatorPropertyTester"
-                namespace="org.jkiss.dbeaver.core.navigator"
-                properties="active,focused"
-                type="org.eclipse.ui.IWorkbenchPart"/>
     </extension>
 
     <extension point="org.eclipse.core.expressions.definitions">
@@ -213,7 +213,10 @@
     <extension point="org.eclipse.ui.commands">
         <category id="org.jkiss.dbeaver.core.navigator" name="%category.dbnavigator.name" description="%category.dbnavigator.description"/>
 
-        <command id="org.jkiss.dbeaver.core.object.open" name="%command.org.jkiss.dbeaver.core.object.open.name" description="%command.org.jkiss.dbeaver.core.object.open.description" categoryId="org.jkiss.dbeaver.core.database"/>
+        <command id="org.jkiss.dbeaver.core.object.open" name="%command.org.jkiss.dbeaver.core.object.open.name" description="%command.org.jkiss.dbeaver.core.object.open.description" categoryId="org.jkiss.dbeaver.core.database">
+            <commandParameter id="activePage" name="Active page" optional="true"/>
+            <commandParameter id="activeFolder" name="Active folder" optional="true"/>
+        </command>
         <command id="org.jkiss.dbeaver.core.object.create" name="%command.org.jkiss.dbeaver.core.object.create.name" description="%command.org.jkiss.dbeaver.core.object.create.description" categoryId="org.jkiss.dbeaver.core.database">
             <commandParameter id="org.jkiss.dbeaver.core.object.type" name="Object type" optional="true"/>
             <commandParameter id="org.jkiss.dbeaver.core.object.typeName" name="Object type name" optional="true"/>
@@ -246,12 +249,16 @@
             </commandParameter>
         </command>
         <command id="org.jkiss.dbeaver.core.resource.link.folder" name="%command.org.jkiss.dbeaver.core.resource.link.folder.name" description="%command.org.jkiss.dbeaver.core.resource.link.folder.description" categoryId="org.jkiss.dbeaver.core.navigator"/>
+        <command id="org.jkiss.dbeaver.core.view.toggle" name="Show/Hide view" categoryId="org.jkiss.dbeaver.core.navigator" description="Toggle view">
+            <commandParameter id="viewId" name="View ID" optional="false" values="org.jkiss.dbeaver.ui.navigator.actions.NavigatorHandlerToggleView$ViewValues">
+            </commandParameter>
+        </command>
 
         <command id="org.jkiss.dbeaver.core.new.folder" name="%command.org.jkiss.dbeaver.core.new.folder.name" description="%command.org.jkiss.dbeaver.core.new.folder.description" categoryId="org.jkiss.dbeaver.core.navigator"/>
         <command id="org.jkiss.dbeaver.core.navigator.view.configure" name="%command.org.jkiss.dbeaver.core.navigator.view.configure.name" description="%command.org.jkiss.dbeaver.core.navigator.view.configure.description" categoryId="org.jkiss.dbeaver.core.navigator"/>
         <command id="org.jkiss.dbeaver.core.navigator.linkeditor" name="%command.org.jkiss.dbeaver.core.navigator.linkeditor.name" description="%command.org.jkiss.dbeaver.core.navigator.linkeditor.description" categoryId="org.jkiss.dbeaver.core.navigator"/>
         <command id="org.jkiss.dbeaver.core.navigator.preferences" name="%command.org.jkiss.dbeaver.core.navigator.preferences.name" description="%command.org.jkiss.dbeaver.core.navigator.preferences.description" categoryId="org.jkiss.dbeaver.core.navigator"/>
-        <command id="org.jkiss.dbeaver.core.navigator.set.active" name="%command.org.jkiss.dbeaver.core.navigator.set.active.name" description="%command.org.jkiss.dbeaver.core.navigator.set.active.description" categoryId="org.jkiss.dbeaver.core.navigator"/>
+        <command id="org.jkiss.dbeaver.core.navigator.set.default" name="%command.org.jkiss.dbeaver.core.navigator.set.default.name" description="%command.org.jkiss.dbeaver.core.navigator.set.default.description" categoryId="org.jkiss.dbeaver.core.navigator"/>
         <command id="org.jkiss.dbeaver.core.navigator.open.browser" name="%command.org.jkiss.dbeaver.core.navigator.open.browser.name" description="%command.org.jkiss.dbeaver.core.navigator.open.browser.description" categoryId="org.jkiss.dbeaver.core.navigator"/>
         <command id="org.jkiss.dbeaver.core.sql.script.associate" name="%command.org.jkiss.dbeaver.core.sql.script.associate.name" description="%command.org.jkiss.dbeaver.core.sql.script.associate.description" categoryId="org.jkiss.dbeaver.core.navigator"/>
 
@@ -274,7 +281,7 @@
         <image commandId="org.jkiss.dbeaver.core.object.filter.add.exclude" icon="platform:/plugin/org.jkiss.dbeaver.ui/icons/misc/filter_add.png"/>
         <image commandId="org.jkiss.dbeaver.core.object.filter.add.include" icon="platform:/plugin/org.jkiss.dbeaver.ui/icons/misc/filter_add.png"/>
 
-        <image commandId="org.jkiss.dbeaver.core.project.create" icon="platform:/plugin/org.jkiss.dbeaver.ui/icons/project.png"/>
+        <image commandId="org.jkiss.dbeaver.core.project.create" icon="platform:/plugin/org.jkiss.dbeaver.ui/icons/project_add.png"/>
         <image commandId="org.jkiss.dbeaver.core.project.refresh" icon="platform:/plugin/org.jkiss.dbeaver.ui/icons/refresh.png"/>
         <image commandId="org.jkiss.dbeaver.core.project.select" icon="platform:/plugin/org.jkiss.dbeaver.ui/icons/project.png"/>
         <image commandId="org.jkiss.dbeaver.core.resource.create.folder" icon="platform:/plugin/org.jkiss.dbeaver.ui/icons/file/folder_add.png"/>
@@ -681,20 +688,9 @@
             </enabledWhen>
         </handler>
 
-        <handler commandId="org.eclipse.ui.navigate.collapseAll" class="org.jkiss.dbeaver.ui.navigator.actions.NavigatorHandlerCollapseAll">
-            <enabledWhen>
-                <with variable="activePart">
-                    <adapt type="org.jkiss.dbeaver.ui.navigator.INavigatorModelView"/>
-                </with>
-            </enabledWhen>
-        </handler>
-        <handler commandId="org.eclipse.ui.navigate.expandAll" class="org.jkiss.dbeaver.ui.navigator.actions.NavigatorHandlerExpandAll">
-            <enabledWhen>
-                <with variable="activePart">
-                    <adapt type="org.jkiss.dbeaver.ui.navigator.INavigatorModelView"/>
-                </with>
-            </enabledWhen>
-        </handler>
+        <handler commandId="org.jkiss.dbeaver.core.view.toggle" class="org.jkiss.dbeaver.ui.navigator.actions.NavigatorHandlerToggleView"/>
+        <handler commandId="org.eclipse.ui.navigate.collapseAll" class="org.jkiss.dbeaver.ui.navigator.actions.NavigatorHandlerCollapseAll"/>
+        <handler commandId="org.eclipse.ui.navigate.expandAll" class="org.jkiss.dbeaver.ui.navigator.actions.NavigatorHandlerExpandAll"/>
         <handler commandId="org.jkiss.dbeaver.core.navigator.view.configure" class="org.jkiss.dbeaver.ui.navigator.actions.NavigatorHandlerViewConfigure"/>
         <handler commandId="org.jkiss.dbeaver.core.navigator.linkeditor" class="org.jkiss.dbeaver.ui.navigator.actions.NavigatorHandlerLinkEditor">
             <enabledWhen>
@@ -704,7 +700,7 @@
             </enabledWhen>
         </handler>
         <handler commandId="org.jkiss.dbeaver.core.navigator.preferences" class="org.jkiss.dbeaver.ui.navigator.actions.NavigatorHandlerPreferences"/>
-        <handler commandId="org.jkiss.dbeaver.core.navigator.set.active" class="org.jkiss.dbeaver.ui.navigator.actions.NavigatorHandlerSetActiveObject">
+        <handler commandId="org.jkiss.dbeaver.core.navigator.set.default" class="org.jkiss.dbeaver.ui.navigator.actions.NavigatorHandlerSetDefaultObject">
             <enabledWhen>
                 <with variable="selection">
                     <count value="1"/>
@@ -730,24 +726,31 @@
         </handler>
 
         <handler commandId="org.jkiss.dbeaver.ui.tools.select.connection" class="org.jkiss.dbeaver.ui.actions.datasource.SelectActiveDataSourceHandler">
-            <enabledWhen>
+            <activeWhen>
                 <with variable="activeEditor">
-                    <instanceof value="org.jkiss.dbeaver.model.IDataSourceContainerProviderEx"/>
+                    <instanceof value="org.jkiss.dbeaver.model.IDataSourceContainerProvider"/>
                 </with>
-            </enabledWhen>
+            </activeWhen>
         </handler>
         <handler commandId="org.jkiss.dbeaver.ui.tools.select.schema" class="org.jkiss.dbeaver.ui.actions.datasource.SelectActiveSchemaHandler">
-            <enabledWhen>
+            <activeWhen>
                 <with variable="activeEditor">
                     <adapt type="org.jkiss.dbeaver.model.DBPContextProvider">
-                        <instanceof value="org.jkiss.dbeaver.model.IDataSourceContainerProviderEx"/>
+                        <instanceof value="org.jkiss.dbeaver.model.IDataSourceContainerProvider"/>
                     </adapt>
                 </with>
-            </enabledWhen>
+            </activeWhen>
         </handler>
+
     </extension>
 
     <extension point="org.eclipse.ui.menus">
+        <menuContribution allPopups="false" locationURI="toolbar:org.eclipse.ui.main.toolbar?after=additions">
+            <toolbar id="dbeaver-tools" label="Database Tools Toolbar">
+                <separator name="additions" visible="false"/>
+            </toolbar>
+        </menuContribution>
+
         <menuContribution allPopups="false" locationURI="popup:org.eclipse.ui.popup.any?after=create">
             <command commandId="org.jkiss.dbeaver.core.object.create">
                 <visibleWhen>
@@ -780,9 +783,22 @@
         <key commandId="org.jkiss.dbeaver.ui.tools.select.schema" schemeId="org.eclipse.ui.defaultAcceleratorConfiguration" sequence="CTRL+0"/>
 
         <key commandId="org.jkiss.dbeaver.core.navigator.linkeditor" schemeId="org.eclipse.ui.defaultAcceleratorConfiguration" sequence="CTRL+SHIFT+,"/>
-        <key commandId="org.jkiss.dbeaver.core.navigator.set.active" schemeId="org.eclipse.ui.defaultAcceleratorConfiguration" sequence="CTRL+SHIFT+A"/>
+        <key commandId="org.jkiss.dbeaver.core.navigator.set.default" schemeId="org.eclipse.ui.defaultAcceleratorConfiguration" sequence="CTRL+SHIFT+A"/>
         <key commandId="org.jkiss.dbeaver.core.object.goto" contextId="org.eclipse.ui.contexts.window" schemeId="org.eclipse.ui.defaultAcceleratorConfiguration" sequence="CTRL+SHIFT+D"/>
         <key commandId="org.jkiss.dbeaver.core.object.open" contextId="org.jkiss.dbeaver.ui.context.navigator" schemeId="org.eclipse.ui.defaultAcceleratorConfiguration" sequence="F4"/>
     </extension>
+
+    <extension point="org.jkiss.dbeaver.navigator.nodeAction">
+        <nodeAction class="org.jkiss.dbeaver.ui.navigator.actions.node.NNAHDataSourceConfiguration" order="999">
+            <objectType name="org.jkiss.dbeaver.model.navigator.DBNDataSource"/>
+        </nodeAction>
+        <nodeAction class="org.jkiss.dbeaver.ui.navigator.actions.node.NNAHDataSourceTunnel" order="200">
+            <objectType name="org.jkiss.dbeaver.model.navigator.DBNDataSource"/>
+        </nodeAction>
+        <nodeAction class="org.jkiss.dbeaver.ui.navigator.actions.node.NNAHDataSourceReadOnly" order="100">
+            <objectType name="org.jkiss.dbeaver.model.navigator.DBNDataSource"/>
+        </nodeAction>
+    </extension>
+
 
 </plugin>

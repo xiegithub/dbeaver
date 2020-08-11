@@ -1,7 +1,7 @@
 /*
  * DBeaver - Universal Database Manager
  * Copyright (C) 2016-2016 Karl Griesser (fullref@gmail.com)
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -36,7 +36,7 @@ import java.sql.SQLException;
 public final class ExasolTableCache
 		extends JDBCStructCache<ExasolSchema, ExasolTable, ExasolTableColumn> {
 
-	private static final String SQL_COLS_TAB = "SELECT " + 
+	private static final String SQL_COLS_TAB = "/*snapshot execution*/ SELECT " + 
 			"c.* " + 
 			"FROM " + 
 			"SYS.%s_COLUMNS c " + 
@@ -45,7 +45,7 @@ public final class ExasolTableCache
 			"AND COLUMN_TABLE = '%s' " + 
 			"ORDER BY " + 
 			"COLUMN_ORDINAL_POSITION ";
-	private static final String SQL_COLS_ALL = "SELECT " + 
+	private static final String SQL_COLS_ALL = "/*snapshot execution*/ SELECT " + 
 			"c.* " + 
 			"FROM " + 
 			"SYS.%s_COLUMNS c " + 
@@ -54,14 +54,15 @@ public final class ExasolTableCache
 			"ORDER BY " + 
 			"COLUMN_ORDINAL_POSITION ";
 	
-	private static final String SQL_TABLES = "SELECT * FROM \"$ODBCJDBC\".ALL_TABLES WHERE TABLE_SCHEM = '%s' and TABLE_TYPE = 'TABLE' order by TABLE_NAME";
+	private static final String SQL_TABLES = "/*snapshot execution*/ select OWNER,OBJECT_ID,TABLE_CAT,TABLE_SCHEM,TABLE_NAME as COLUMN_TABLE,TABLE_TYPE,REMARKS,TYPE_CAT,TYPE_SCHEM,TYPE_NAME,SELF_REFERENCING_COL_NAME,REF_GENERATION from \"$ODBCJDBC\".ALL_TABLES WHERE TABLE_SCHEM = '%s' and TABLE_TYPE = 'TABLE' order by TABLE_NAME";
 
 	public ExasolTableCache()
 	{
-		super("TABLE_NAME");
+		super("COLUMN_TABLE");
 	}
 
-	@Override
+	@NotNull
+    @Override
 	protected JDBCStatement prepareObjectsStatement(
 			@NotNull JDBCSession session, @NotNull ExasolSchema exasolSchema)
 			throws SQLException
@@ -100,8 +101,8 @@ public final class ExasolTableCache
 
 	@Override
 	protected ExasolTableColumn fetchChild(@NotNull JDBCSession session,
-			@NotNull ExasolSchema owner, @NotNull ExasolTable parent,
-			JDBCResultSet dbResult) throws SQLException, DBException
+                                           @NotNull ExasolSchema owner, @NotNull ExasolTable parent,
+                                           @NotNull JDBCResultSet dbResult) throws SQLException, DBException
 	{
 		return new ExasolTableColumn(session.getProgressMonitor(), parent,
 				dbResult);

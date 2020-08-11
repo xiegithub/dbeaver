@@ -1,7 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
- * Copyright (C) 2011-2012 Eugene Fradkin (eugene.fradkin@gmail.com)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,20 +20,14 @@ import org.eclipse.ui.IWorkbenchPart;
 import org.eclipse.ui.IWorkbenchWindow;
 import org.jkiss.dbeaver.DBException;
 import org.jkiss.dbeaver.ext.mysql.model.MySQLCatalog;
-import org.jkiss.dbeaver.model.connection.DBPConnectionConfiguration;
 import org.jkiss.dbeaver.model.struct.DBSObject;
+import org.jkiss.dbeaver.tasks.ui.nativetool.NativeToolWizardDialog;
 import org.jkiss.dbeaver.ui.tools.IUserInterfaceTool;
-import org.jkiss.dbeaver.ui.dialogs.tools.AbstractToolWizard;
-import org.jkiss.dbeaver.ui.dialogs.tools.ToolWizardDialog;
-import org.jkiss.utils.CommonUtils;
 
-import java.io.IOException;
-import java.util.ArrayList;
 import java.util.Collection;
-import java.util.List;
 
 /**
- * Database import
+ * MySQLToolScript
  */
 public class MySQLToolScript implements IUserInterfaceTool
 {
@@ -43,7 +36,7 @@ public class MySQLToolScript implements IUserInterfaceTool
     {
         for (DBSObject object : objects) {
             if (object instanceof MySQLCatalog) {
-                ToolWizardDialog dialog = new ToolWizardDialog(
+                NativeToolWizardDialog dialog = new NativeToolWizardDialog(
                     window,
                     new MySQLScriptExecuteWizard((MySQLCatalog) object, false));
                 dialog.open();
@@ -51,27 +44,4 @@ public class MySQLToolScript implements IUserInterfaceTool
         }
     }
 
-    public static <BASE_OBJECT extends DBSObject, PROCESS_ARG> List<String> getMySQLToolCommandLine(
-        AbstractToolWizard<BASE_OBJECT, PROCESS_ARG> toolWizard, PROCESS_ARG arg) throws IOException
-    {
-        java.util.List<String> cmd = new ArrayList<>();
-        toolWizard.fillProcessParameters(cmd, arg);
-
-        if (toolWizard.isVerbose()) {
-            cmd.add("-v");
-        }
-        DBPConnectionConfiguration connectionInfo = toolWizard.getConnectionInfo();
-        cmd.add("--host=" + connectionInfo.getHostName());
-        if (!CommonUtils.isEmpty(connectionInfo.getHostPort())) {
-            cmd.add("--port=" + connectionInfo.getHostPort());
-        }
-        cmd.add("-u");
-        cmd.add(toolWizard.getToolUserName());
-        // Password is passed in env variable (#1004)
-//        if (!CommonUtils.isEmpty(toolWizard.getToolUserPassword())) {
-//            cmd.add("--password=" + toolWizard.getToolUserPassword());
-//        }
-
-        return cmd;
-    }
 }

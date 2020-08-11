@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -32,6 +32,8 @@ public interface PostgreServerExtension
 {
     String getServerTypeName();
 
+    boolean supportsTransactions();
+
     boolean supportsOids();
 
     boolean supportsIndexes();
@@ -43,6 +45,10 @@ public interface PostgreServerExtension
     boolean supportsInheritance();
 
     boolean supportsTriggers();
+
+    boolean supportsFunctionDefRead();
+
+    boolean supportsFunctionCreate();
 
     boolean supportsRules();
 
@@ -66,24 +72,40 @@ public interface PostgreServerExtension
 
     boolean supportsAggregates();
 
-    boolean isSupportsLimits();
+    boolean supportsResultSetLimits();
 
     boolean supportsClientInfo();
 
     boolean supportsRelationSizeCalc();
 
-    boolean supportFunctionDefRead();
+    boolean supportsExplainPlan();
 
-    String readTableDDL(DBRProgressMonitor monitor, PostgreTableBase table) throws DBException;
+    boolean supportsExplainPlanXML();
+
+    boolean supportsExplainPlanVerbose();
+
+    boolean supportsDatabaseDescription();
+
+    boolean supportsTemporalAccessor();
+
+    boolean supportsTeblespaceLocation();
 
     boolean supportsTemplates();
+
+    // Stored procedures support (workarounds for Redshift mostly)
+    boolean supportsStoredProcedures();
+    String getProceduresSystemTable();
+    String getProceduresOidColumn();
+
+    // Table DDL extraction
+    String readTableDDL(DBRProgressMonitor monitor, PostgreTableBase table) throws DBException;
 
     // Custom schema cache.
     JDBCObjectLookupCache<PostgreDatabase, PostgreSchema> createSchemaCache(PostgreDatabase database);
 
     PostgreTableBase createRelationOfClass(PostgreSchema schema, PostgreClass.RelKind kind, JDBCResultSet dbResult);
 
-    PostgreTableBase createNewRelation(PostgreSchema schema, PostgreClass.RelKind kind);
+    PostgreTableBase createNewRelation(DBRProgressMonitor monitor, PostgreSchema schema, PostgreClass.RelKind kind, Object copyFrom) throws DBException;
 
     void configureDialect(PostgreDialect dialect);
 
@@ -96,13 +118,11 @@ public interface PostgreServerExtension
 
     List<PostgrePrivilege> readObjectPermissions(DBRProgressMonitor monitor, PostgreTableBase object, boolean includeNestedObjects) throws DBException;
 
-    boolean supportsExplainPlan();
+    Map<String, String> getDataTypeAliases();
 
-    boolean supportsExplainPlanXML();
+    boolean supportsTableStatistics();
 
-    boolean supportsExplainPlanVerbose();
-
-    boolean supportsDatabaseDescription();
-
-    boolean supportsTemporalAccessor();
+    // True if driver returns source table name in ResultSetMetaData.
+    // It works for original PG driver but doesn't work for many forks (e.g. Redshift).
+    boolean supportsEntityMetadataInResults();
 }

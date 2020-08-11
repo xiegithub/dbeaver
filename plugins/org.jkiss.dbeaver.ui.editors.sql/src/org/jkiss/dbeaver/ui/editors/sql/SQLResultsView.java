@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,7 +18,9 @@ package org.jkiss.dbeaver.ui.editors.sql;
 
 import org.eclipse.swt.widgets.Composite;
 import org.eclipse.ui.part.ViewPart;
+import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
+import org.jkiss.dbeaver.model.app.DBPProject;
 import org.jkiss.dbeaver.model.data.DBDDataFilter;
 import org.jkiss.dbeaver.model.exec.DBCExecutionContext;
 import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
@@ -67,6 +69,13 @@ public class SQLResultsView extends ViewPart
 
     private class DetachedContainer implements IResultSetContainer {
         private IResultSetContainer currentContainer;
+
+        @Nullable
+        @Override
+        public DBPProject getProject() {
+            return currentContainer == null ? null : currentContainer.getProject();
+        }
+
         @Nullable
         @Override
         public DBCExecutionContext getExecutionContext() {
@@ -91,7 +100,7 @@ public class SQLResultsView extends ViewPart
         }
 
         @Override
-        public void openNewContainer(DBRProgressMonitor monitor, DBSDataContainer dataContainer, DBDDataFilter newFilter) {
+        public void openNewContainer(DBRProgressMonitor monitor, @NotNull DBSDataContainer dataContainer, @NotNull DBDDataFilter newFilter) {
             DBWorkbench.getPlatformUI().showError("Data container", "Not supported");
         }
 

@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  * Copyright (C) 2011-2012 Eugene Fradkin (eugene.fradkin@gmail.com)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -22,18 +22,6 @@ import org.eclipse.osgi.util.NLS;
 public class DTMessages extends NLS {
 	static final String BUNDLE_NAME = "org.jkiss.dbeaver.tools.transfer.internal.DTMessages"; //$NON-NLS-1$
 
-	public static String data_transfer_wizard_name;
-	public static String data_transfer_wizard_final_column_source;
-	public static String data_transfer_wizard_final_column_source_container;
-	public static String data_transfer_wizard_final_column_target;
-	public static String data_transfer_wizard_final_column_target_container;
-	public static String data_transfer_wizard_final_description;
-	public static String data_transfer_wizard_final_group_tables;
-	public static String data_transfer_wizard_final_group_objects;
-	public static String data_transfer_wizard_final_group_settings_source;
-	public static String data_transfer_wizard_final_group_settings_target;
-	public static String data_transfer_wizard_final_name;
-	public static String data_transfer_wizard_final_title;
 	public static String data_transfer_wizard_init_column_description;
 	public static String data_transfer_wizard_init_column_exported;
 	public static String data_transfer_wizard_init_description;
@@ -64,6 +52,7 @@ public class DTMessages extends NLS {
 	public static String data_transfer_wizard_output_label_use_single_file_tip;
 	public static String data_transfer_wizard_output_label_directory;
 	public static String data_transfer_wizard_output_label_encoding;
+	public static String data_transfer_wizard_output_label_timestamp_pattern;
 	public static String data_transfer_wizard_output_label_extract_type;
 	public static String data_transfer_wizard_output_label_file_name_pattern;
 	public static String data_transfer_wizard_output_label_insert_bom;
@@ -109,7 +98,37 @@ public class DTMessages extends NLS {
 	public static String data_transfer_db_consumer_column_mappings;
 	public static String data_transfer_db_consumer_ddl;
 
-    static {
+	public static String sql_script_task_title;
+	public static String sql_script_task_page_settings_title;
+	public static String sql_script_task_page_settings_description;
+	public static String sql_script_task_page_settings_group_files;
+	public static String sql_script_task_page_settings_group_connections;
+	public static String sql_script_task_page_settings_group_script;
+	public static String sql_script_task_page_settings_option_ignore_errors;
+	public static String sql_script_task_page_settings_option_dump_results;
+	public static String sql_script_task_page_settings_option_auto_commit;
+	public static String database_consumer_settings_option_use_transactions;
+	public static String database_consumer_settings_option_commit_after;
+	public static String database_consumer_settings_option_transfer_auto_generated_columns;
+	public static String database_consumer_settings_option_truncate_before_load;
+
+	public static String data_transfer_settings_title_find_producer;
+	public static String data_transfer_settings_message_find_data_producer;
+	public static String data_transfer_settings_title_find_consumer;
+	public static String data_transfer_settings_message_find_data_consumer;
+	public static String data_transfer_settings_title_configuration_error;
+	public static String data_transfer_settings_message_error_reading_task_configuration;
+	public static String database_consumer_settings_title_init_connection;
+	public static String database_consumer_settings_message_error_connecting;
+	public static String database_mapping_container_title_attributes_read_failed;
+	public static String database_mapping_container_message_get_attributes_from;
+	public static String database_transfer_consumer_task_error_occurred_during_data_load;
+	public static String stream_transfer_consumer_title_run_process;
+	public static String stream_transfer_consumer_message_error_running_process;
+
+
+
+	static {
 		// initialize resource bundle
 		NLS.initializeMessages(BUNDLE_NAME, DTMessages.class);
 	}

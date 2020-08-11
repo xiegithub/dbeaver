@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,7 +23,6 @@ import org.jkiss.dbeaver.Log;
 import org.jkiss.dbeaver.ModelPreferences;
 import org.jkiss.dbeaver.ext.mysql.MySQLConstants;
 import org.jkiss.dbeaver.ext.mysql.MySQLDataSourceProvider;
-import org.jkiss.dbeaver.ext.mysql.MySQLUtils;
 import org.jkiss.dbeaver.ext.mysql.model.plan.MySQLPlanAnalyser;
 import org.jkiss.dbeaver.ext.mysql.model.session.MySQLSessionManager;
 import org.jkiss.dbeaver.model.*;
@@ -31,7 +30,10 @@ import org.jkiss.dbeaver.model.admin.sessions.DBAServerSessionManager;
 import org.jkiss.dbeaver.model.app.DBACertificateStorage;
 import org.jkiss.dbeaver.model.connection.DBPConnectionConfiguration;
 import org.jkiss.dbeaver.model.connection.DBPDriver;
-import org.jkiss.dbeaver.model.exec.*;
+import org.jkiss.dbeaver.model.exec.DBCException;
+import org.jkiss.dbeaver.model.exec.DBCExecutionContext;
+import org.jkiss.dbeaver.model.exec.DBCQueryTransformType;
+import org.jkiss.dbeaver.model.exec.DBCQueryTransformer;
 import org.jkiss.dbeaver.model.exec.jdbc.*;
 import org.jkiss.dbeaver.model.exec.plan.DBCQueryPlanner;
 import org.jkiss.dbeaver.model.gis.GisConstants;
@@ -45,7 +47,10 @@ import org.jkiss.dbeaver.model.net.DBWHandlerConfiguration;
 import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
 import org.jkiss.dbeaver.model.sql.SQLHelpProvider;
 import org.jkiss.dbeaver.model.sql.SQLState;
-import org.jkiss.dbeaver.model.struct.*;
+import org.jkiss.dbeaver.model.struct.DBSDataType;
+import org.jkiss.dbeaver.model.struct.DBSObject;
+import org.jkiss.dbeaver.model.struct.DBSObjectFilter;
+import org.jkiss.dbeaver.model.struct.DBSStructureAssistant;
 import org.jkiss.utils.CommonUtils;
 import org.jkiss.utils.IOUtils;
 
@@ -61,7 +66,7 @@ import java.util.regex.Pattern;
 /**
  * GenericDataSource
  */
-public class MySQLDataSource extends JDBCDataSource implements DBSObjectSelector {
+public class MySQLDataSource extends JDBCDataSource implements DBPObjectStatisticsCollector {
     private static final Log log = Log.getLog(MySQLDataSource.class);
 
     private final JDBCBasicDataTypeCache<MySQLDataSource, JDBCDataType> dataTypeCache;
@@ -72,8 +77,10 @@ public class MySQLDataSource extends JDBCDataSource implements DBSObjectSelector
     private List<MySQLCharset> charsets;
     private Map<String, MySQLCollation> collations;
     private String defaultCharset, defaultCollation;
-    private String activeCatalogName;
+    private int lowerCaseTableNames = 1;
     private SQLHelpProvider helpProvider;
+    private volatile boolean hasStatistics;
+    private boolean containsCheckConstraintTable;
 
     public MySQLDataSource(DBRProgressMonitor monitor, DBPDataSourceContainer container)
         throws DBException {
@@ -94,11 +101,15 @@ public class MySQLDataSource extends JDBCDataSource implements DBSObjectSelector
         return super.getDataSourceFeature(featureId);
     }
 
+    int getLowerCaseTableNames() {
+        return lowerCaseTableNames;
+    }
+
     @Override
-    protected Map<String, String> getInternalConnectionProperties(DBRProgressMonitor monitor, DBPDriver driver, String purpose, DBPConnectionConfiguration connectionInfo)
+    protected Map<String, String> getInternalConnectionProperties(DBRProgressMonitor monitor, DBPDriver driver, JDBCExecutionContext context, String purpose, DBPConnectionConfiguration connectionInfo)
         throws DBCException {
         Map<String, String> props = new LinkedHashMap<>(MySQLDataSourceProvider.getConnectionsProps());
-        final DBWHandlerConfiguration sslConfig = getContainer().getActualConnectionConfiguration().getDeclaredHandler(MySQLConstants.HANDLER_SSL);
+        final DBWHandlerConfiguration sslConfig = getContainer().getActualConnectionConfiguration().getHandler(MySQLConstants.HANDLER_SSL);
         if (sslConfig != null && sslConfig.isEnabled()) {
             try {
                 initSSL(monitor, props, sslConfig);
@@ -138,7 +149,7 @@ public class MySQLDataSource extends JDBCDataSource implements DBSObjectSelector
     }
 
     @Override
-    protected DBPDataSourceInfo createDataSourceInfo(@NotNull JDBCDatabaseMetaData metaData) {
+    protected DBPDataSourceInfo createDataSourceInfo(DBRProgressMonitor monitor, @NotNull JDBCDatabaseMetaData metaData) {
         return new MySQLDataSourceInfo(metaData);
     }
 
@@ -147,12 +158,16 @@ public class MySQLDataSource extends JDBCDataSource implements DBSObjectSelector
         final DBACertificateStorage securityManager = getContainer().getPlatform().getCertificateStorage();
 
         props.put("useSSL", "true");
-        props.put("verifyServerCertificate", String.valueOf(CommonUtils.toBoolean(sslConfig.getProperties().get(MySQLConstants.PROP_VERIFY_SERVER_SERT))));
-        props.put("requireSSL", String.valueOf(CommonUtils.toBoolean(sslConfig.getProperties().get(MySQLConstants.PROP_REQUIRE_SSL))));
+        if (isMariaDB()) {
+            props.put("trustServerCertificate", String.valueOf(!sslConfig.getBooleanProperty(MySQLConstants.PROP_VERIFY_SERVER_SERT)));
+        } else {
+            props.put("verifyServerCertificate", sslConfig.getStringProperty(MySQLConstants.PROP_VERIFY_SERVER_SERT));
+            props.put("requireSSL", sslConfig.getStringProperty(MySQLConstants.PROP_REQUIRE_SSL));
+        }
 
-        final String caCertProp = sslConfig.getProperties().get(MySQLConstants.PROP_SSL_CA_CERT);
-        final String clientCertProp = sslConfig.getProperties().get(MySQLConstants.PROP_SSL_CLIENT_CERT);
-        final String clientCertKeyProp = sslConfig.getProperties().get(MySQLConstants.PROP_SSL_CLIENT_KEY);
+        final String caCertProp = sslConfig.getStringProperty(MySQLConstants.PROP_SSL_CA_CERT);
+        final String clientCertProp = sslConfig.getStringProperty(MySQLConstants.PROP_SSL_CLIENT_CERT);
+        final String clientCertKeyProp = sslConfig.getStringProperty(MySQLConstants.PROP_SSL_CLIENT_KEY);
 
         {
             // Trust keystore
@@ -165,19 +180,23 @@ public class MySQLDataSource extends JDBCDataSource implements DBSObjectSelector
                 securityManager.deleteCertificate(getContainer(), "ssl");
             }
             final String ksPath = makeKeyStorePath(securityManager.getKeyStorePath(getContainer(), "ssl"));
-            props.put("clientCertificateKeyStoreUrl", ksPath);
-            props.put("trustCertificateKeyStoreUrl", ksPath);
+            if (isMariaDB()) {
+                props.put("trustStore", ksPath);
+            } else {
+                props.put("clientCertificateKeyStoreUrl", ksPath);
+                props.put("trustCertificateKeyStoreUrl", ksPath);
+            }
         }
-        final String cipherSuites = sslConfig.getProperties().get(MySQLConstants.PROP_SSL_CIPHER_SUITES);
+        final String cipherSuites = sslConfig.getStringProperty(MySQLConstants.PROP_SSL_CIPHER_SUITES);
         if (!CommonUtils.isEmpty(cipherSuites)) {
             props.put("enabledSSLCipherSuites;", cipherSuites);
         }
-        final boolean retrievePublicKey = CommonUtils.getBoolean(sslConfig.getProperties().get(MySQLConstants.PROP_SSL_PUBLIC_KEY_RETRIEVE), false);
+        final boolean retrievePublicKey = sslConfig.getBooleanProperty(MySQLConstants.PROP_SSL_PUBLIC_KEY_RETRIEVE);
         if (retrievePublicKey) {
             props.put("allowPublicKeyRetrieval", "true");
         }
 
-        if (CommonUtils.getBoolean(sslConfig.getProperties().get(MySQLConstants.PROP_SSL_DEBUG), false)) {
+        if (sslConfig.getBooleanProperty(MySQLConstants.PROP_SSL_DEBUG)) {
             System.setProperty("javax.net.debug", "all");
         }
     }
@@ -190,12 +209,19 @@ public class MySQLDataSource extends JDBCDataSource implements DBSObjectSelector
         }
     }
 
-    protected void initializeContextState(@NotNull DBRProgressMonitor monitor, @NotNull JDBCExecutionContext context, boolean setActiveObject) throws DBCException {
-        if (setActiveObject) {
-            MySQLCatalog object = getDefaultObject();
+    @Override
+    protected JDBCExecutionContext createExecutionContext(JDBCRemoteInstance instance, String type) {
+        return new MySQLExecutionContext(instance, type);
+    }
+
+    protected void initializeContextState(@NotNull DBRProgressMonitor monitor, @NotNull JDBCExecutionContext context, JDBCExecutionContext initFrom) throws DBException {
+        if (initFrom != null && !context.getDataSource().getContainer().isConnectionReadOnly()) {
+            MySQLCatalog object = ((MySQLExecutionContext)initFrom).getDefaultCatalog();
             if (object != null) {
-                useDatabase(monitor, context, object);
+                ((MySQLExecutionContext)context).setCurrentDatabase(monitor, object);
             }
+        } else {
+            ((MySQLExecutionContext)context).refreshDefaults(monitor, true);
         }
     }
 
@@ -287,9 +313,30 @@ public class MySQLDataSource extends JDBCDataSource implements DBSObjectSelector
 
             }
 
+            try (JDBCPreparedStatement dbStat = session.prepareStatement("SHOW VARIABLES LIKE 'lower_case_table_names'")) {
+                try (JDBCResultSet dbResult = dbStat.executeQuery()) {
+                    if (dbResult.next()) {
+                        lowerCaseTableNames = JDBCUtils.safeGetInt(dbResult, 2);
+                    }
+                }
+            } catch (Throwable ex) {
+                log.debug("Error reading default server charset/collation", ex);
+            }
+
             // Read catalogs
             catalogCache.getAllObjects(monitor, this);
-            activeCatalogName = MySQLUtils.determineCurrentDatabase(session);
+            //activeCatalogName = MySQLUtils.determineCurrentDatabase(session);
+
+            // Check check constraints in base
+            try {
+                String resultSet = JDBCUtils.queryString(session, "SELECT * FROM information_schema.TABLES t\n" +
+                        "WHERE\n" +
+                        "\tt.TABLE_SCHEMA = 'information_schema'\n" +
+                        "\tAND t.TABLE_NAME = 'CHECK_CONSTRAINTS'");
+                containsCheckConstraintTable = (resultSet != null);
+            } catch (SQLException e) {
+                log.debug("Error reading information schema", e);
+            }
         }
     }
 
@@ -301,7 +348,6 @@ public class MySQLDataSource extends JDBCDataSource implements DBSObjectSelector
         this.engines = null;
         this.catalogCache.clearCache();
         this.users = null;
-        this.activeCatalogName = null;
 
         this.initialize(monitor);
 
@@ -346,71 +392,13 @@ public class MySQLDataSource extends JDBCDataSource implements DBSObjectSelector
     }
 
     @Override
-    public boolean supportsDefaultChange() {
-        return true;
-    }
-
-    @Override
-    public MySQLCatalog getDefaultObject() {
-        return CommonUtils.isEmpty(activeCatalogName) ? null : getCatalog(activeCatalogName);
-    }
-
-    @Override
-    public void setDefaultObject(@NotNull DBRProgressMonitor monitor, @NotNull DBSObject object)
-        throws DBException {
-        final MySQLCatalog oldSelectedEntity = getDefaultObject();
-        if (!(object instanceof MySQLCatalog)) {
-            throw new DBException("Invalid object type: " + object);
-        }
-        for (JDBCExecutionContext context : getDefaultInstance().getAllContexts()) {
-            useDatabase(monitor, context, (MySQLCatalog) object);
-        }
-        activeCatalogName = object.getName();
-
-        // Send notifications
-        if (oldSelectedEntity != null) {
-            DBUtils.fireObjectSelect(oldSelectedEntity, false);
-        }
-        if (this.activeCatalogName != null) {
-            DBUtils.fireObjectSelect(object, true);
-        }
-    }
-
-    @Override
-    public boolean refreshDefaultObject(@NotNull DBCSession session) throws DBException {
-        final String newCatalogName = MySQLUtils.determineCurrentDatabase((JDBCSession) session);
-        if (!CommonUtils.equalObjects(newCatalogName, activeCatalogName)) {
-            final MySQLCatalog newCatalog = getCatalog(newCatalogName);
-            if (newCatalog != null) {
-                setDefaultObject(session.getProgressMonitor(), newCatalog);
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private void useDatabase(DBRProgressMonitor monitor, JDBCExecutionContext context, MySQLCatalog catalog) throws DBCException {
-        if (catalog == null) {
-            log.debug("Null current database");
-            return;
-        }
-        try (JDBCSession session = context.openSession(monitor, DBCExecutionPurpose.UTIL, "Set active catalog")) {
-            try (JDBCPreparedStatement dbStat = session.prepareStatement("use " + DBUtils.getQuotedIdentifier(catalog))) {
-                dbStat.execute();
-            }
-        } catch (SQLException e) {
-            throw new DBCException(e, this);
-        }
-    }
-
-    @Override
-    protected Connection openConnection(@NotNull DBRProgressMonitor monitor, JDBCRemoteInstance remoteInstance, @NotNull String purpose) throws DBCException {
-        Connection mysqlConnection = super.openConnection(monitor, remoteInstance, purpose);
+    protected Connection openConnection(@NotNull DBRProgressMonitor monitor, @Nullable JDBCExecutionContext context, @NotNull String purpose) throws DBCException {
+        Connection mysqlConnection = super.openConnection(monitor, context, purpose);
 
         if (!getContainer().getPreferenceStore().getBoolean(ModelPreferences.META_CLIENT_NAME_DISABLE)) {
             // Provide client info
             try {
-                mysqlConnection.setClientInfo(JDBCConstants.APPLICATION_NAME_CLIENT_PROPERTY, DBUtils.getClientApplicationName(getContainer(), purpose));
+                mysqlConnection.setClientInfo(JDBCConstants.APPLICATION_NAME_CLIENT_PROPERTY, DBUtils.getClientApplicationName(getContainer(), context, purpose));
             } catch (Throwable e) {
                 // just ignore
                 log.debug(e);
@@ -514,7 +502,7 @@ public class MySQLDataSource extends JDBCDataSource implements DBSObjectSelector
 
     public MySQLPrivilege getPrivilege(DBRProgressMonitor monitor, String name)
         throws DBException {
-        return DBUtils.findObject(getPrivileges(monitor), name);
+        return DBUtils.findObject(getPrivileges(monitor), name, true);
     }
 
     private List<MySQLPrivilege> loadPrivileges(DBRProgressMonitor monitor)
@@ -611,7 +599,7 @@ public class MySQLDataSource extends JDBCDataSource implements DBSObjectSelector
                 }
                 @Override
                 public int getDefaultSRID() {
-                    return GisConstants.DEFAULT_SRID;
+                    return GisConstants.SRID_4326;
                 }
             });
         } else if (adapter == DBCQueryPlanner.class) {
@@ -661,7 +649,48 @@ public class MySQLDataSource extends JDBCDataSource implements DBSObjectSelector
         }
     }
 
+    @Override
+    public boolean isStatisticsCollected() {
+        return hasStatistics;
+    }
+
+    @Override
+    public void collectObjectStatistics(DBRProgressMonitor monitor, boolean totalSizeOnly, boolean forceRefresh) throws DBException {
+        if (hasStatistics && !forceRefresh) {
+            return;
+        }
+        if (!this.isMariaDB() && !this.isServerVersionAtLeast(4, 1)) {
+            // Not supported by MySQL server
+            hasStatistics = true;
+            return;
+        }
+
+        try (JDBCSession session = DBUtils.openMetaSession(monitor, this, "Load table status")) {
+            try (JDBCPreparedStatement dbStat = session.prepareStatement(
+                "SELECT table_schema, SUM(data_length + index_length) \n" +
+                    "FROM information_schema.tables \n" +
+                    "GROUP BY table_schema"))
+            {
+                try (JDBCResultSet dbResult = dbStat.executeQuery()) {
+                    while (dbResult.next()) {
+                        String dbName = dbResult.getString(1);
+                        MySQLCatalog catalog = catalogCache.getObject(monitor, this, dbName);
+                        if (catalog != null) {
+                            long dbSize = dbResult.getLong(2);
+                            catalog.setDatabaseSize(dbSize);
+                        }
+                    }
+                }
+            } catch (SQLException e) {
+                throw new DBCException(e, session.getExecutionContext());
+            }
+        } finally {
+            hasStatistics = true;
+        }
+    }
+
     static class CatalogCache extends JDBCObjectCache<MySQLDataSource, MySQLCatalog> {
+        @NotNull
         @Override
         protected JDBCStatement prepareObjectsStatement(@NotNull JDBCSession session, @NotNull MySQLDataSource owner) throws SQLException {
             StringBuilder catalogQuery = new StringBuilder("show databases");
@@ -714,6 +743,15 @@ public class MySQLDataSource extends JDBCDataSource implements DBSObjectSelector
             }
         }
         return null;
+    }
+
+    public boolean supportsCheckConstraints() {
+        if (this.isMariaDB()) {
+            return this.isServerVersionAtLeast(10, 2) && containsCheckConstraintTable;
+        }
+        else {
+            return this.isServerVersionAtLeast(8, 0) && containsCheckConstraintTable;
+        }
     }
 
 }

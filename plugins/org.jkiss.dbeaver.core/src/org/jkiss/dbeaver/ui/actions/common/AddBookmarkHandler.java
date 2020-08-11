@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,17 +19,16 @@ package org.jkiss.dbeaver.ui.actions.common;
 import org.eclipse.core.commands.ExecutionEvent;
 import org.eclipse.core.commands.ExecutionException;
 import org.eclipse.core.resources.IFolder;
-import org.eclipse.core.resources.IProject;
 import org.eclipse.jface.dialogs.IDialogSettings;
 import org.eclipse.jface.viewers.*;
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.layout.GridData;
 import org.eclipse.swt.widgets.Composite;
-import org.eclipse.swt.widgets.Control;
 import org.eclipse.swt.widgets.Shell;
 import org.eclipse.ui.handlers.HandlerUtil;
 import org.jkiss.dbeaver.DBException;
 import org.jkiss.dbeaver.core.CoreMessages;
+import org.jkiss.dbeaver.model.app.DBPProject;
 import org.jkiss.dbeaver.model.navigator.DBNDataSource;
 import org.jkiss.dbeaver.model.navigator.DBNDatabaseNode;
 import org.jkiss.dbeaver.model.navigator.DBNNode;
@@ -88,16 +87,16 @@ public class AddBookmarkHandler extends NavigatorHandlerObjectBase {
         }
 
         @Override
-        protected Control createDialogArea(Composite parent) {
-            final Control area = super.createDialogArea(parent);
+        protected Composite createDialogArea(Composite parent) {
+            final Composite area = super.createDialogArea(parent);
 
-            final IProject project = node.getOwnerProject();
+            final DBPProject project = node.getOwnerProject();
             if (project != null) {
                 IFolder bookmarksFolder = BookmarksHandlerImpl.getBookmarksFolder(project, false);
                 if (bookmarksFolder != null) {
                     DBNResource bookmarksFolderNode = node.getModel().getNodeByResource(bookmarksFolder);
                     if (bookmarksFolderNode != null) {
-                        UIUtils.createControlLabel((Composite) area, "Bookmark folder");
+                        UIUtils.createControlLabel(area, "Bookmark folder");
                         DatabaseNavigatorTree foldersNavigator = new DatabaseNavigatorTree((Composite) area, bookmarksFolderNode, SWT.BORDER | SWT.SINGLE, true);
                         final GridData gd = new GridData(GridData.FILL_BOTH);
                         gd.widthHint = 200;
@@ -118,14 +117,11 @@ public class AddBookmarkHandler extends NavigatorHandlerObjectBase {
                                 return element instanceof DBNResource && ((DBNResource) element).getResource() instanceof IFolder;
                             }
                         });
-                        treeViewer.addSelectionChangedListener(new ISelectionChangedListener() {
-                            @Override
-                            public void selectionChanged(SelectionChangedEvent event) {
-                                IStructuredSelection structSel = (IStructuredSelection) event.getSelection();
-                                Object object = structSel.isEmpty() ? null : structSel.getFirstElement();
-                                if (object instanceof DBNResource && ((DBNResource) object).getResource() instanceof IFolder) {
-                                    targetFolder = (IFolder) ((DBNResource) object).getResource();
-                                }
+                        treeViewer.addSelectionChangedListener(event -> {
+                            IStructuredSelection structSel = (IStructuredSelection) event.getSelection();
+                            Object object = structSel.isEmpty() ? null : structSel.getFirstElement();
+                            if (object instanceof DBNResource && ((DBNResource) object).getResource() instanceof IFolder) {
+                                targetFolder = (IFolder) ((DBNResource) object).getResource();
                             }
                         });
                         treeViewer.expandAll();

@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -35,7 +35,9 @@ import org.jkiss.dbeaver.ext.erd.figures.EditableLabel;
 import org.jkiss.dbeaver.ext.erd.model.ERDEntity;
 import org.jkiss.dbeaver.ext.erd.model.ERDEntityAttribute;
 import org.jkiss.dbeaver.ext.erd.model.ERDUtils;
+import org.jkiss.dbeaver.ext.erd.policy.AttributeConnectionEditPolicy;
 import org.jkiss.dbeaver.ext.erd.policy.AttributeDirectEditPolicy;
+import org.jkiss.dbeaver.ext.erd.policy.AttributeDragAndDropEditPolicy;
 import org.jkiss.dbeaver.ext.erd.policy.AttributeEditPolicy;
 
 import java.beans.PropertyChangeEvent;
@@ -51,6 +53,7 @@ public class AttributePart extends PropertyAwarePart {
     public static final String PROP_CHECKED = "CHECKED";
 
     public AttributePart() {
+
     }
 
     @Override
@@ -90,9 +93,13 @@ public class AttributePart extends PropertyAwarePart {
     protected void createEditPolicies() {
         if (isEditEnabled()) {
             installEditPolicy(EditPolicy.COMPONENT_ROLE, new AttributeEditPolicy());
-            //installEditPolicy(EditPolicy.CONTAINER_ROLE, new AttributeContainerEditPolicy());
             installEditPolicy(EditPolicy.DIRECT_EDIT_ROLE, new AttributeDirectEditPolicy());
             //installEditPolicy(EditPolicy.LAYOUT_ROLE, null);
+
+            if (getEditPolicy(EditPolicy.CONTAINER_ROLE) == null && isColumnDragAndDropSupported()) {
+                installEditPolicy(EditPolicy.CONTAINER_ROLE, new AttributeConnectionEditPolicy(this));
+                installEditPolicy(EditPolicy.PRIMARY_DRAG_ROLE, new AttributeDragAndDropEditPolicy(this));
+            }
         }
     }
 

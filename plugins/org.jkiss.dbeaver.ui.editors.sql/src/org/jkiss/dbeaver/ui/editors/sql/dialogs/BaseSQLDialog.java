@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,8 +20,6 @@ import org.eclipse.jface.dialogs.IDialogConstants;
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.custom.StyledText;
 import org.eclipse.swt.dnd.TextTransfer;
-import org.eclipse.swt.events.DisposeEvent;
-import org.eclipse.swt.events.DisposeListener;
 import org.eclipse.swt.layout.FillLayout;
 import org.eclipse.swt.layout.GridData;
 import org.eclipse.swt.widgets.Composite;
@@ -32,10 +30,10 @@ import org.eclipse.ui.IWorkbenchPartSite;
 import org.eclipse.ui.PartInitException;
 import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
+import org.jkiss.dbeaver.Log;
 import org.jkiss.dbeaver.model.DBPImage;
 import org.jkiss.dbeaver.model.exec.DBCExecutionContext;
 import org.jkiss.dbeaver.model.impl.sql.BasicSQLDialect;
-import org.jkiss.dbeaver.model.sql.SQLDataSource;
 import org.jkiss.dbeaver.model.sql.SQLDialect;
 import org.jkiss.dbeaver.runtime.DBWorkbench;
 import org.jkiss.dbeaver.ui.UIUtils;
@@ -47,6 +45,8 @@ import org.jkiss.dbeaver.ui.editors.sql.internal.SQLEditorMessages;
 import org.jkiss.dbeaver.utils.GeneralUtils;
 
 public abstract class BaseSQLDialog extends BaseDialog {
+
+    private static final Log log = Log.getLog(BaseSQLDialog.class);
 
     private IEditorSite subSite;
     private SQLEditorBase sqlViewer;
@@ -61,6 +61,18 @@ public abstract class BaseSQLDialog extends BaseDialog {
         super(shell, title, image);
         this.subSite = new SubEditorSite(parentSite);
         this.sqlInput = new StringEditorInput(title, "", true, GeneralUtils.getDefaultFileEncoding());
+    }
+
+    public boolean isReadOnly() {
+        return sqlInput.isReadOnly();
+    }
+
+    public void setReadOnly(boolean readOnly) {
+        sqlInput.setReadOnly(readOnly);
+    }
+
+    public String getText() {
+        return sqlInput.getBuffer().toString();
     }
 
     protected boolean isWordWrap() {
@@ -112,21 +124,15 @@ public abstract class BaseSQLDialog extends BaseDialog {
         }
         sqlViewer.reloadSyntaxRules();
 
-        parent.addDisposeListener(new DisposeListener() {
-            @Override
-            public void widgetDisposed(DisposeEvent e)
-            {
-                sqlViewer.dispose();
-            }
-        });
+        //parent.addDisposeListener(e -> sqlViewer.dispose());
 
         return panel;
     }
 
     protected SQLDialect getSQLDialect() {
         DBCExecutionContext executionContext = getExecutionContext();
-        if (executionContext != null && executionContext.getDataSource() instanceof SQLDataSource) {
-            return ((SQLDataSource) executionContext.getDataSource()).getSQLDialect();
+        if (executionContext != null) {
+            return executionContext.getDataSource().getSQLDialect();
         }
         return BasicSQLDialect.INSTANCE;
     }
@@ -151,9 +157,30 @@ public abstract class BaseSQLDialog extends BaseDialog {
     {
         if (buttonId == IDialogConstants.DETAILS_ID) {
             saveToClipboard();
+            super.buttonPressed(IDialogConstants.CANCEL_ID);
         } else {
             super.buttonPressed(buttonId);
         }
+    }
+
+    @Override
+    protected void okPressed() {
+        if (sqlViewer != null && sqlViewer.getTextViewer() != null && sqlViewer.getTextViewer().getDocument() != null) {
+            sqlInput.setText(sqlViewer.getTextViewer().getDocument().get());
+        }
+        super.okPressed();
+    }
+
+    @Override
+    public boolean close() {
+        if (sqlViewer != null) {
+            try {
+                sqlViewer.dispose();
+            } catch (Exception e) {
+                log.debug("Error disposing embedded SQL editor", e);
+            }
+        }
+        return super.close();
     }
 
     protected void updateSQL()

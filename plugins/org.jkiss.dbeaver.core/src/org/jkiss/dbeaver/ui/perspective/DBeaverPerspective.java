@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,6 +21,7 @@ import org.eclipse.ui.IPageLayout;
 import org.eclipse.ui.IPerspectiveFactory;
 import org.eclipse.ui.IPlaceholderFolderLayout;
 import org.eclipse.ui.texteditor.templates.TemplatesView;
+import org.jkiss.dbeaver.tasks.ui.view.DatabaseTasksView;
 import org.jkiss.dbeaver.ui.IActionConstants;
 import org.jkiss.dbeaver.ui.navigator.database.DatabaseBrowserView;
 import org.jkiss.dbeaver.ui.navigator.database.DatabaseNavigatorView;
@@ -81,6 +82,7 @@ public class DBeaverPerspective implements IPerspectiveFactory
         bottomRight.addPlaceholder(IActionConstants.LOG_VIEW_ID);
         bottomRight.addPlaceholder(QueryManagerView.VIEW_ID);
         bottomRight.addPlaceholder(ShellProcessView.VIEW_ID);
+        bottomRight.addPlaceholder(DatabaseTasksView.VIEW_ID);
         bottomRight.addPlaceholder(IPageLayout.ID_PROP_SHEET);
         bottomRight.addPlaceholder(IPageLayout.ID_PROGRESS_VIEW);
         bottomRight.addPlaceholder(IPageLayout.ID_OUTLINE);

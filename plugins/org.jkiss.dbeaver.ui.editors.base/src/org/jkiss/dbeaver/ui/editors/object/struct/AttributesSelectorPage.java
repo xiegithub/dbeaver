@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,6 +16,10 @@
  */
 package org.jkiss.dbeaver.ui.editors.object.struct;
 
+import org.eclipse.core.runtime.IStatus;
+import org.eclipse.core.runtime.Status;
+import org.eclipse.core.runtime.jobs.IJobChangeEvent;
+import org.eclipse.core.runtime.jobs.JobChangeAdapter;
 import org.eclipse.osgi.util.NLS;
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.events.SelectionAdapter;
@@ -27,8 +31,8 @@ import org.jkiss.dbeaver.DBException;
 import org.jkiss.dbeaver.model.DBPEvaluationContext;
 import org.jkiss.dbeaver.model.DBUtils;
 import org.jkiss.dbeaver.model.navigator.DBNDatabaseNode;
+import org.jkiss.dbeaver.model.runtime.AbstractJob;
 import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
-import org.jkiss.dbeaver.model.runtime.DBRRunnableWithProgress;
 import org.jkiss.dbeaver.model.struct.DBSEntity;
 import org.jkiss.dbeaver.model.struct.DBSEntityAttribute;
 import org.jkiss.dbeaver.runtime.DBWorkbench;
@@ -37,11 +41,11 @@ import org.jkiss.dbeaver.ui.UIUtils;
 import org.jkiss.dbeaver.ui.controls.CustomTableEditor;
 import org.jkiss.dbeaver.ui.controls.TableColumnSortListener;
 import org.jkiss.dbeaver.ui.editors.internal.EditorsMessages;
+import org.jkiss.dbeaver.utils.GeneralUtils;
 import org.jkiss.utils.CommonUtils;
 
-import java.lang.reflect.InvocationTargetException;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
 /**
  * AttributesSelectorPage
@@ -150,8 +154,8 @@ public abstract class AttributesSelectorPage extends BaseObjectEditPage {
         columnsTable = new Table(columnsGroup, SWT.BORDER | SWT.SINGLE | SWT.FULL_SELECTION | SWT.CHECK);
         columnsTable.setHeaderVisible(true);
         GridData gd = new GridData(GridData.FILL_BOTH);
-        //gd.widthHint = 300;
-        //gd.heightHint = 200;
+        gd.minimumWidth = 300;
+        gd.minimumHeight = 150;
         columnsTable.setLayoutData(gd);
         columnsTable.addSelectionListener(new SelectionAdapter() {
             @Override
@@ -237,54 +241,55 @@ public abstract class AttributesSelectorPage extends BaseObjectEditPage {
         //item.setText(index, control.getText());
     }
 
-    protected void fillAttributes(final DBSEntity entity)
+    private void fillAttributes(final DBSEntity entity)
     {
-        // Collect attributes
-        final List<DBSEntityAttribute> attributes = new ArrayList<>();
-        try {
-            UIUtils.runInProgressService(new DBRRunnableWithProgress() {
-                @Override
-                public void run(DBRProgressMonitor monitor) throws InvocationTargetException, InterruptedException
-                {
-                    try {
-                        for (DBSEntityAttribute attr : CommonUtils.safeCollection(entity.getAttributes(monitor))) {
-                            if (!DBUtils.isHiddenObject(attr)) {
-                                attributes.add(attr);
-                            }
+        final List<DBSEntityAttribute> attrList = new ArrayList<>();
+        AbstractJob loadJob = new AbstractJob("Load entity attributes") {
+            @Override
+            protected IStatus run(DBRProgressMonitor monitor) {
+                try {
+                    for (DBSEntityAttribute attr : CommonUtils.safeCollection(entity.getAttributes(monitor))) {
+                        if (isShowHiddenAttributes() || !DBUtils.isHiddenObject(attr) || DBUtils.isRowIdAttribute(attr)) {
+                            attrList.add(attr);
                         }
-                    } catch (DBException e) {
-                        throw new InvocationTargetException(e);
                     }
+                } catch (DBException e) {
+                    return GeneralUtils.makeErrorStatus("Error loading attributes", e);
                 }
-            });
-        } catch (InvocationTargetException e) {
-            DBWorkbench.getPlatformUI().showError(
-                    EditorsMessages.dialog_struct_columns_select_error_load_columns_title,
-                EditorsMessages.dialog_struct_columns_select_error_load_columns_message,
-                e.getTargetException());
-        } catch (InterruptedException e) {
-            // do nothing
-        }
-
-        for (DBSEntityAttribute attribute : attributes) {
-            TableItem columnItem = new TableItem(columnsTable, SWT.NONE);
-
-            AttributeInfo col = new AttributeInfo(attribute);
-            this.attributes.add(col);
-
-            DBNDatabaseNode attributeNode = DBWorkbench.getPlatform().getNavigatorModel().findNode(attribute);
-            if (attributeNode != null) {
-                columnItem.setImage(0, DBeaverIcons.getImage(attributeNode.getNodeIcon()));
+                return Status.OK_STATUS;
             }
-            fillAttributeColumns(attribute, col, columnItem);
-            columnItem.setData(col);
-            if (isColumnSelected(attribute)) {
-                columnItem.setChecked(true);
-                handleItemSelect(columnItem, false);
+        };
+        loadJob.addJobChangeListener(new JobChangeAdapter() {
+            @Override
+            public void done(IJobChangeEvent event) {
+                UIUtils.syncExec(() -> {
+                    for (DBSEntityAttribute attribute : attrList) {
+                        TableItem columnItem = new TableItem(columnsTable, SWT.NONE);
+
+                        AttributeInfo col = new AttributeInfo(attribute);
+                        attributes.add(col);
+
+                        DBNDatabaseNode attributeNode = DBWorkbench.getPlatform().getNavigatorModel().findNode(attribute);
+                        if (attributeNode != null) {
+                            columnItem.setImage(0, DBeaverIcons.getImage(attributeNode.getNodeIcon()));
+                        }
+                        fillAttributeColumns(attribute, col, columnItem);
+                        columnItem.setData(col);
+                        if (isColumnSelected(attribute)) {
+                            columnItem.setChecked(true);
+                            handleItemSelect(columnItem, false);
+                        }
+                    }
+                    UIUtils.packColumns(columnsTable);
+                    updateToggleButton();
+                });
             }
-        }
-        UIUtils.packColumns(columnsTable);
-        updateToggleButton();
+        });
+        loadJob.schedule();
+    }
+
+    protected boolean isShowHiddenAttributes() {
+        return false;
     }
 
     private Composite createTableNameInput(Composite panel) {

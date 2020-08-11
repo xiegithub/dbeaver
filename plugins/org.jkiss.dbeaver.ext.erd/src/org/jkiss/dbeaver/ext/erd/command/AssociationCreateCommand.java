@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,10 +17,16 @@
 package org.jkiss.dbeaver.ext.erd.command;
 
 import org.eclipse.gef.commands.Command;
-import org.jkiss.dbeaver.ext.erd.model.ERDAssociation;
-import org.jkiss.dbeaver.ext.erd.model.ERDElement;
-import org.jkiss.dbeaver.ext.erd.model.ERDEntity;
+import org.jkiss.dbeaver.ext.erd.model.*;
+import org.jkiss.dbeaver.model.struct.DBSEntity;
+import org.jkiss.dbeaver.model.struct.DBSEntityAttribute;
+import org.jkiss.dbeaver.model.virtual.DBVEntity;
+import org.jkiss.dbeaver.model.virtual.DBVEntityForeignKey;
+import org.jkiss.dbeaver.model.virtual.DBVUtils;
+import org.jkiss.dbeaver.ui.editors.object.struct.EditForeignKeyPage;
+import org.jkiss.utils.CommonUtils;
 
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -32,7 +38,28 @@ public class AssociationCreateCommand extends Command {
     protected ERDElement sourceEntity;
     protected ERDElement targetEntity;
 
+    private List<ERDEntityAttribute> sourceAttributes;
+    private List<ERDEntityAttribute> targetAttributes;
+
     public AssociationCreateCommand() {
+    }
+
+    public ERDEntityAttribute getSourceAttribute() {
+        return CommonUtils.isEmpty(sourceAttributes) ? null : sourceAttributes.get(0);
+    }
+
+    public ERDEntityAttribute getTargetAttribute() {
+        return CommonUtils.isEmpty(targetAttributes) ? null : targetAttributes.get(0);
+    }
+
+    public void setAttributes(List<ERDEntityAttribute> sourceAttributes, List<ERDEntityAttribute> targetAttributes) {
+        this.sourceAttributes = sourceAttributes;
+        this.targetAttributes = targetAttributes;
+
+    }
+    public void setAttributes(ERDEntityAttribute sourceAttribute, ERDEntityAttribute targetAttribute) {
+        this.sourceAttributes = Collections.singletonList(sourceAttribute);
+        this.targetAttributes = Collections.singletonList(targetAttribute);
     }
 
     @Override
@@ -64,7 +91,30 @@ public class AssociationCreateCommand extends Command {
 
     @Override
     public void execute() {
-        association = createAssociation(sourceEntity, targetEntity, true);
+        if (sourceEntity instanceof ERDEntity && targetEntity instanceof ERDEntity) {
+            DBSEntity srcEntityObject = ((ERDEntity)sourceEntity).getObject();
+            DBSEntity targetEntityObject = ((ERDEntity)targetEntity).getObject();
+
+            List<DBSEntityAttribute> srcAttrs = ERDUtils.getObjectsFromERD(sourceAttributes);
+            List<DBSEntityAttribute> refAttrs = ERDUtils.getObjectsFromERD(targetAttributes);
+
+            DBVEntity vEntity = DBVUtils.getVirtualEntity(srcEntityObject, true);
+            DBVEntityForeignKey vfk = EditForeignKeyPage.createVirtualForeignKey(
+                vEntity,
+                targetEntityObject,
+                new EditForeignKeyPage.FKType[] {
+                    EditForeignKeyPage.FK_TYPE_LOGICAL
+                },
+                srcAttrs,
+                refAttrs);
+            if (vfk == null) {
+                return;
+            }
+            vEntity.persistConfiguration();
+            association = new ERDAssociation(vfk, (ERDEntity)sourceEntity, (ERDEntity)targetEntity, true);
+        } else {
+            association = createAssociation(sourceEntity, targetEntity, true);
+        }
     }
 
     public ERDElement getSourceEntity() {
@@ -93,14 +143,18 @@ public class AssociationCreateCommand extends Command {
 
     @Override
     public void redo() {
-        sourceEntity.addAssociation(association, true);
-        targetEntity.addReferenceAssociation(association, true);
+        if (association != null) {
+            sourceEntity.addAssociation(association, true);
+            targetEntity.addReferenceAssociation(association, true);
+        }
     }
 
     @Override
     public void undo() {
-        sourceEntity.removeAssociation(association, true);
-        targetEntity.removeReferenceAssociation(association, true);
+        if (association != null) {
+            sourceEntity.removeAssociation(association, true);
+            targetEntity.removeReferenceAssociation(association, true);
+        }
     }
 
     protected ERDAssociation createAssociation(ERDElement sourceEntity, ERDElement targetEntity, boolean reflect) {

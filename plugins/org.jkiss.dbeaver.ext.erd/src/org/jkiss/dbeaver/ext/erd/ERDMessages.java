@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  * Copyright (C) 2011-2012 Eugene Fradkin (eugene.fradkin@gmail.com)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -72,6 +72,10 @@ public class ERDMessages extends NLS {
 	public static String erd_preference_page_title_attributes_visibility;
 	public static String erd_preference_page_title_diagram_contents;
 	public static String erd_preference_page_title_shows_views;
+	public static String erd_preference_page_title_shows_partitions;
+	public static String erd_preference_page_title_color_pref;
+	public static String erd_preference_page_title_change_border_colors;
+	public static String erd_preference_page_title_change_header_colors;
 	public static String erd_tool_color_action_text_set_color;
     public static String erd_tool_color_action_tip_text_set_figure_color;
     public static String erd_tool_create_connection;

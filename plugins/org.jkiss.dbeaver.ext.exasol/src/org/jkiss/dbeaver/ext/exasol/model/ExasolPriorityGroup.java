@@ -1,9 +1,5 @@
 package org.jkiss.dbeaver.ext.exasol.model;
 
-import java.math.BigDecimal;
-import java.sql.Date;
-import java.sql.ResultSet;
-
 import org.jkiss.code.NotNull;
 import org.jkiss.dbeaver.DBException;
 import org.jkiss.dbeaver.model.DBPNamedObject2;
@@ -14,7 +10,11 @@ import org.jkiss.dbeaver.model.meta.Property;
 import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
 import org.jkiss.dbeaver.model.struct.DBSObject;
 
-public class ExasolPriorityGroup implements DBPRefreshableObject, DBPNamedObject2, DBPSaveableObject {
+import java.math.BigDecimal;
+import java.sql.Date;
+import java.sql.ResultSet;
+
+public class ExasolPriorityGroup  extends ExasolPriority implements DBPRefreshableObject, DBPNamedObject2, DBPSaveableObject {
 
 	private ExasolDataSource dataSource;
 	private String groupName;
@@ -25,6 +25,7 @@ public class ExasolPriorityGroup implements DBPRefreshableObject, DBPNamedObject
 	private BigDecimal groupId = new BigDecimal(-1);
 	
 	public ExasolPriorityGroup(ExasolDataSource dataSource, String name, String comment, int weight ) {
+		super(dataSource, name, comment);
 		this.groupName = name;
 		this.comment = comment;
 		this.weight = weight;
@@ -33,6 +34,7 @@ public class ExasolPriorityGroup implements DBPRefreshableObject, DBPNamedObject
 	}
 	
 	public ExasolPriorityGroup(ExasolDataSource dataSource, ResultSet dbResult) {
+		super(dataSource, "", "");
 		this.dataSource = dataSource;
 		if (dbResult != null) {
 			this.persisted = true;
@@ -42,18 +44,14 @@ public class ExasolPriorityGroup implements DBPRefreshableObject, DBPNamedObject
 			this.weight = JDBCUtils.safeGetInt(dbResult, "PRIORITY_GROUP_WEIGHT");
 			this.groupId = JDBCUtils.safeGetBigDecimal(dbResult, "PRIORITY_GROUP_ID");
 		}
+		super.setDescription(comment);
+		super.setName(groupName);
 	}
 	
 	@Override
 	public DBSObject getParentObject()
 	{
 		return this.dataSource.getContainer();
-	}
-
-	@Override
-	public ExasolDataSource getDataSource()
-	{
-		return this.dataSource;
 	}
 
 	@Override
@@ -96,7 +94,11 @@ public class ExasolPriorityGroup implements DBPRefreshableObject, DBPNamedObject
 		return comment;
 	}
 
-    @Property(viewable = true, editable= false, updatable=false, order = 40)
+	public void setDescription(String comment) {
+		this.comment = comment;
+	}
+
+	@Property(viewable = true, editable= false, updatable=false, order = 40)
 	public BigDecimal getGroupId()
 	{
 		return groupId;

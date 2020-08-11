@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -43,16 +43,15 @@ import org.jkiss.dbeaver.ui.ICommentsSupport;
 import org.jkiss.dbeaver.ui.ISingleControlEditor;
 import org.jkiss.dbeaver.ui.UIUtils;
 import org.jkiss.dbeaver.ui.dialogs.DialogUtils;
-import org.jkiss.dbeaver.ui.editors.EditorUtils;
-import org.jkiss.dbeaver.ui.editors.INonPersistentEditorInput;
-import org.jkiss.dbeaver.ui.editors.IStatefulEditorInput;
-import org.jkiss.dbeaver.ui.editors.SubEditorSite;
+import org.jkiss.dbeaver.ui.editors.*;
 import org.jkiss.dbeaver.utils.ContentUtils;
 import org.jkiss.dbeaver.utils.GeneralUtils;
 import org.jkiss.utils.IOUtils;
 
 import java.io.*;
 import java.lang.reflect.InvocationTargetException;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Abstract text editor.
@@ -65,6 +64,12 @@ public abstract class BaseTextEditor extends AbstractDecoratedTextEditor impleme
     public static final String GROUP_SQL_PREFERENCES = "sql.preferences";
     public static final String GROUP_SQL_ADDITIONS = "sql.additions";
     public static final String GROUP_SQL_EXTRAS = "sql.extras";
+
+    private List<IActionContributor> actionContributors = new ArrayList<>();
+
+    public void addContextMenuContributor(IActionContributor contributor) {
+        actionContributors.add(contributor);
+    }
 
     public static BaseTextEditor getTextEditor(IEditorPart editor)
     {
@@ -182,6 +187,10 @@ public abstract class BaseTextEditor extends AbstractDecoratedTextEditor impleme
         if (preferencesAction != null) {
             menu.appendToGroup(GROUP_SQL_PREFERENCES, preferencesAction);
         }
+
+        for (IActionContributor ac : actionContributors) {
+            ac.contributeActions(menu);
+        }
     }
 
     @Nullable
@@ -263,7 +272,7 @@ public abstract class BaseTextEditor extends AbstractDecoratedTextEditor impleme
         String fileName = curFile == null ? null : curFile.getName();
 
         final IDocument document = getDocument();
-        final File saveFile = DialogUtils.selectFileForSave(getSite().getShell(), "Save SQL script", new String[]{"*.sql", "*.txt", "*", "*.*"}, fileName);
+        final File saveFile = DialogUtils.selectFileForSave(getSite().getShell(), "Save as file", new String[]{"*.sql", "*.txt", "*", "*.*"}, fileName);
         if (document == null || saveFile == null) {
             return;
         }

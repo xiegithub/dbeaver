@@ -1,8 +1,10 @@
 package org.jkiss.dbeaver.ext.greenplum.model;
 
 import org.jkiss.dbeaver.DBException;
-import org.jkiss.dbeaver.ext.postgresql.model.*;
-import org.jkiss.dbeaver.ext.greenplum.model.GreenplumDataSource;
+import org.jkiss.dbeaver.ext.postgresql.model.PostgreDatabase;
+import org.jkiss.dbeaver.ext.postgresql.model.PostgreDialect;
+import org.jkiss.dbeaver.ext.postgresql.model.PostgreSchema;
+import org.jkiss.dbeaver.ext.postgresql.model.PostgreTableColumn;
 import org.jkiss.dbeaver.model.exec.jdbc.JDBCResultSet;
 import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
 import org.junit.Assert;
@@ -55,6 +57,7 @@ public class GreenplumExternalTableTest {
         Mockito.when(mockSchema.getDatabase()).thenReturn(mockDatabase);
         Mockito.when(mockSchema.getDataSource()).thenReturn(mockDataSource);
         Mockito.when(mockDatabase.getName()).thenReturn(exampleDatabaseName);
+        Mockito.when(mockSchema.getSchema()).thenReturn(mockSchema);
         Mockito.when(mockSchema.getName()).thenReturn(exampleSchemaName);
         Mockito.when(mockSchema.getTableCache()).thenReturn(mockTableCache);
         Mockito.when(mockDataSource.getSQLDialect()).thenReturn(new PostgreDialect());

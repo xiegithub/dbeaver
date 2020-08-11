@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,6 +20,7 @@ import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
 import org.jkiss.dbeaver.Log;
 import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
+import org.jkiss.dbeaver.runtime.IVariableResolver;
 import org.jkiss.dbeaver.runtime.WebUtils;
 import org.jkiss.dbeaver.utils.GeneralUtils;
 import org.jkiss.dbeaver.utils.RuntimeUtils;
@@ -59,7 +60,7 @@ public class MavenArtifactVersion implements IMavenIdentifier {
     private final List<MavenProfile> profiles = new ArrayList<>();
     private final List<MavenRepository> repositories = new ArrayList<>();
 
-    private GeneralUtils.IVariableResolver propertyResolver = new GeneralUtils.IVariableResolver() {
+    private IVariableResolver propertyResolver = new IVariableResolver() {
         @Override
         public String get(String name) {
             switch (name) {
@@ -173,8 +174,9 @@ public class MavenArtifactVersion implements IMavenIdentifier {
     }
 
     public File getCacheFile() {
+        String fileExt = getPackagingFileExtension();
         if (artifact.getRepository().getType() == MavenRepository.RepositoryType.LOCAL) {
-            String externalURL = getExternalURL(MavenArtifact.FILE_JAR);
+            String externalURL = getExternalURL(fileExt);
             try {
                 return RuntimeUtils.getLocalFileFromURL(new URL(externalURL));
 //                return new File(new URL(externalURL).toURI());
@@ -183,7 +185,20 @@ public class MavenArtifactVersion implements IMavenIdentifier {
                 return new File(externalURL);
             }
         }
-        return new File(artifact.getRepository().getLocalCacheDir(), artifact.getGroupId() + "/" + artifact.getVersionFileName(version, MavenArtifact.FILE_JAR));
+        return new File(artifact.getRepository().getLocalCacheDir(), artifact.getGroupId() + "/" + artifact.getVersionFileName(version, fileExt));
+    }
+
+    public String getExternalURL() {
+        return artifact.getFileURL(version, getPackagingFileExtension());
+    }
+
+    @NotNull
+    private String getPackagingFileExtension() {
+        String fileExt = packaging;
+        if (CommonUtils.isEmpty(fileExt) || fileExt.equals(MavenArtifact.PACKAGING_BUNDLE) || fileExt.equals(MavenArtifact.FILE_POM)) {
+            fileExt = MavenArtifact.FILE_JAR;
+        }
+        return fileExt;
     }
 
     public String getExternalURL(String fileType) {

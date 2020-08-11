@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,7 +21,6 @@ import org.eclipse.core.runtime.IStatus;
 import org.eclipse.core.runtime.MultiStatus;
 import org.eclipse.core.runtime.Status;
 import org.eclipse.core.runtime.jobs.Job;
-import org.eclipse.draw2d.Figure;
 import org.eclipse.draw2d.IFigure;
 import org.eclipse.draw2d.PrintFigureOperation;
 import org.eclipse.draw2d.geometry.Dimension;
@@ -56,7 +55,6 @@ import org.eclipse.ui.views.properties.IPropertySheetPage;
 import org.eclipse.ui.views.properties.PropertySheetPage;
 import org.jkiss.code.Nullable;
 import org.jkiss.dbeaver.DBException;
-import org.jkiss.dbeaver.core.DBeaverCore;
 import org.jkiss.dbeaver.ext.erd.ERDActivator;
 import org.jkiss.dbeaver.ext.erd.ERDConstants;
 import org.jkiss.dbeaver.ext.erd.ERDMessages;
@@ -85,8 +83,8 @@ import org.jkiss.dbeaver.runtime.DBWorkbench;
 import org.jkiss.dbeaver.ui.*;
 import org.jkiss.dbeaver.ui.controls.ProgressLoaderVisualizer;
 import org.jkiss.dbeaver.ui.controls.ProgressPageControl;
-import org.jkiss.dbeaver.ui.controls.itemlist.ObjectSearcher;
 import org.jkiss.dbeaver.ui.dialogs.DialogUtils;
+import org.jkiss.dbeaver.ui.navigator.itemlist.ObjectSearcher;
 import org.jkiss.utils.ArrayUtils;
 import org.jkiss.utils.CommonUtils;
 
@@ -207,6 +205,13 @@ public abstract class ERDEditorPart extends GraphicalEditorWithFlyoutPalette
         }
     }
 
+    protected void updateToolbarActions() {
+        if (progressControl != null) {
+            progressControl.updateActions();
+
+        }
+    }
+
     /**
      * The <code>CommandStackListener</code> that listens for
      * <code>CommandStack </code> changes.
@@ -276,10 +281,7 @@ public abstract class ERDEditorPart extends GraphicalEditorWithFlyoutPalette
     }
 
     @Override
-    public void doSave(IProgressMonitor monitor)
-    {
-
-    }
+    public abstract void doSave(IProgressMonitor monitor);
 
     /**
      * Save as not allowed
@@ -476,7 +478,7 @@ public abstract class ERDEditorPart extends GraphicalEditorWithFlyoutPalette
             } else if (selection.size() == 1) {
                 status = CommonUtils.toString(selection.getFirstElement());
             } else {
-                status = String.valueOf(selection.size()) + " objects";
+                status = selection.size() + " objects";
             }
             if (progressControl != null) {
                 progressControl.setInfo(status);
@@ -879,15 +881,23 @@ public abstract class ERDEditorPart extends GraphicalEditorWithFlyoutPalette
         {
             toolBarManager.add(ActionUtils.makeCommandContribution(
                 getSite(),
-                IWorkbenchCommandConstants.FILE_SAVE_AS,
-                ERDMessages.erd_editor_control_action_save_external_format,
-                UIIcon.PICTURE_SAVE));
-            toolBarManager.add(ActionUtils.makeCommandContribution(
-                getSite(),
                 IWorkbenchCommandConstants.FILE_PRINT,
                 ERDMessages.erd_editor_control_action_print_diagram,
                 UIIcon.PRINT));
+
+            toolBarManager.add(ActionUtils.makeCommandContribution(
+                getSite(),
+                IWorkbenchCommandConstants.FILE_SAVE_AS,
+                ERDMessages.erd_editor_control_action_save_external_format,
+                UIIcon.PICTURE_SAVE));
+
+            toolBarManager.add(ActionUtils.makeCommandContribution(
+                getSite(),
+                IWorkbenchCommandConstants.FILE_SAVE,
+                null,
+                UIIcon.SAVE));
         }
+        toolBarManager.add(new Separator());
         {
             Action configAction = new Action(ERDMessages.erd_editor_control_action_configuration) {
                 @Override
@@ -986,6 +996,8 @@ public abstract class ERDEditorPart extends GraphicalEditorWithFlyoutPalette
                     }
                 }
             }
+            diagram.setNeedsAutoLayout(true);
+
             UIUtils.asyncExec(() -> getGraphicalViewer().setContents(diagram));
         }
     }
@@ -1007,6 +1019,20 @@ public abstract class ERDEditorPart extends GraphicalEditorWithFlyoutPalette
                 graphicalViewer.setProperty(SnapToGrid.PROPERTY_GRID_SPACING, new Dimension(
                     store.getInt(ERDConstants.PREF_GRID_WIDTH),
                     store.getInt(ERDConstants.PREF_GRID_HEIGHT)));
+            } else if (ERDConstants.PREF_ATTR_VISIBILITY.equals(event.getProperty())) {
+                EntityDiagram diagram = getDiagram();
+                ERDAttributeVisibility attrVisibility = CommonUtils.valueOf(ERDAttributeVisibility.class, CommonUtils.toString(event.getNewValue()));
+                diagram.setAttributeVisibility(attrVisibility);
+                for (ERDEntity entity : diagram.getEntities()) {
+                    entity.reloadAttributes(diagram);
+                }
+                diagram.setNeedsAutoLayout(true);
+
+                UIUtils.asyncExec(() -> graphicalViewer.setContents(diagram));
+            } else if (ERDConstants.PREF_ATTR_STYLES.equals(event.getProperty())) {
+                refreshDiagram(true, false);
+            } else if (ERDConstants.PREF_DIAGRAM_SHOW_VIEWS.equals(event.getProperty()) || ERDConstants.PREF_DIAGRAM_SHOW_PARTITIONS.equals(event.getProperty())) {
+                refreshDiagram(true, true);
             }
         }
     }
@@ -1076,9 +1102,9 @@ public abstract class ERDEditorPart extends GraphicalEditorWithFlyoutPalette
                         // log.debug(message);
                         List<Status> messageStatuses = new ArrayList<>(errorMessages.size());
                         for (String error : errorMessages) {
-                            messageStatuses.add(new Status(Status.ERROR, DBeaverCore.getCorePluginID(), error));
+                            messageStatuses.add(new Status(Status.ERROR, ERDActivator.PLUGIN_ID, error));
                         }
-                        MultiStatus status = new MultiStatus(DBeaverCore.getCorePluginID(), 0, messageStatuses.toArray(new IStatus[messageStatuses.size()]), null, null);
+                        MultiStatus status = new MultiStatus(ERDActivator.PLUGIN_ID, 0, messageStatuses.toArray(new IStatus[0]), null, null);
 
                         DBWorkbench.getPlatformUI().showError(
                                 "Diagram loading errors",
@@ -1184,7 +1210,7 @@ public abstract class ERDEditorPart extends GraphicalEditorWithFlyoutPalette
         public void completeLoading(EntityDiagram result) {
             super.completeLoading(result);
             super.visualizeLoading();
-            if (!result.getEntities().isEmpty()) {
+            if (result != null && !result.getEntities().isEmpty()) {
                 setErrorMessage(null);
             }
             getGraphicalViewer().setContents(result);

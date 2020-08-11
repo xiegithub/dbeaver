@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -68,6 +68,12 @@ public class PostgreTableForeignKey extends PostgreTableConstraintBase implement
     private PostgreTableBase refTable;
     private final List<PostgreTableForeignKeyColumn> columns = new ArrayList<>();
 
+/*
+    public PostgreTableForeignKey(DBRProgressMonitor monitor, PostgreTable table, PostgreTableForeignKey source) {
+        super(monitor, table, source);
+    }
+*/
+
     public PostgreTableForeignKey(
         @NotNull PostgreTableBase table,
         @NotNull String name,
@@ -96,7 +102,7 @@ public class PostgreTableForeignKey extends PostgreTableConstraintBase implement
 
     public PostgreTableForeignKey(
         @NotNull PostgreTableBase table,
-        @NotNull DBSEntityConstraint refConstraint,
+        @Nullable DBSEntityConstraint refConstraint,
         @NotNull DBSForeignKeyModifyRule deleteRule,
         @NotNull DBSForeignKeyModifyRule updateRule)
     {

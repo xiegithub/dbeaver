@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,6 +16,8 @@
  */
 package org.jkiss.dbeaver.ext.mssql.model.generic;
 
+import org.jkiss.code.NotNull;
+import org.jkiss.code.Nullable;
 import org.jkiss.dbeaver.DBException;
 import org.jkiss.dbeaver.ext.generic.model.GenericStructContainer;
 import org.jkiss.dbeaver.ext.generic.model.GenericTable;
@@ -29,6 +31,7 @@ import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
 import org.jkiss.dbeaver.model.struct.DBSObject;
 
 import java.sql.SQLException;
+import java.util.List;
 
 /**
 * SQL Server table
@@ -37,6 +40,17 @@ public class SQLServerGenericTable extends GenericTable implements DBPOverloaded
 
     public SQLServerGenericTable(GenericStructContainer container, String tableName, String tableType, JDBCResultSet dbResult) {
         super(container, tableName, tableType, dbResult);
+    }
+
+    @Nullable
+    @Override
+    public synchronized List<SQLServerGenericTableColumn> getAttributes(@NotNull DBRProgressMonitor monitor) throws DBException {
+        return (List<SQLServerGenericTableColumn>) super.getAttributes(monitor);
+    }
+
+    @Override
+    public SQLServerGenericTableColumn getAttribute(@NotNull DBRProgressMonitor monitor, @NotNull String attributeName) throws DBException {
+        return (SQLServerGenericTableColumn)super.getAttribute(monitor, attributeName);
     }
 
     @Override
@@ -58,7 +72,7 @@ public class SQLServerGenericTable extends GenericTable implements DBPOverloaded
         }
         // Query row count
         try (JDBCSession session = DBUtils.openUtilSession(monitor, this, "Read table description")) {
-            DBSObject defaultDatabase = getDataSource().getDefaultObject();
+            DBSObject defaultDatabase = DBUtils.getDefaultContext(getDataSource(), true).getContextDefaults().getDefaultCatalog();
             boolean switchSchema = getCatalog() != null && defaultDatabase != null && defaultDatabase != getCatalog();
             try (JDBCPreparedStatement dbStat = session.prepareStatement(
                 (switchSchema ? "USE " + DBUtils.getQuotedIdentifier(getCatalog()) + ";\n" : "") +

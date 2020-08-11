@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  * Copyright (C) 2011-2012 Eugene Fradkin (eugene.fradkin@gmail.com)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -23,12 +23,14 @@ import org.jkiss.dbeaver.ext.mysql.model.MySQLTable;
 import org.jkiss.dbeaver.ext.mysql.model.MySQLTableForeignKey;
 import org.jkiss.dbeaver.model.edit.DBECommandContext;
 import org.jkiss.dbeaver.model.exec.DBCException;
-import org.jkiss.dbeaver.model.impl.DBSObjectCache;
 import org.jkiss.dbeaver.model.impl.sql.edit.struct.SQLForeignKeyManager;
 import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
 import org.jkiss.dbeaver.model.struct.DBSObject;
+import org.jkiss.dbeaver.model.struct.cache.DBSObjectCache;
 import org.jkiss.dbeaver.model.struct.rdb.DBSForeignKeyModifyRule;
 import org.jkiss.dbeaver.runtime.DBWorkbench;
+
+import java.util.Map;
 
 /**
  * MySQL foreign key manager
@@ -43,8 +45,9 @@ public class MySQLForeignKeyManager extends SQLForeignKeyManager<MySQLTableForei
     }
 
     @Override
-    protected MySQLTableForeignKey createDatabaseObject(DBRProgressMonitor monitor, DBECommandContext context, final MySQLTable table, Object from)
+    protected MySQLTableForeignKey createDatabaseObject(DBRProgressMonitor monitor, DBECommandContext context, final Object container, Object from, Map<String, Object> options)
     {
+        MySQLTable table = (MySQLTable) container;
         try {
             if (MySQLEngine.MYISAM.equalsIgnoreCase(table.getAdditionalInfo(monitor).getEngine().getName())) {
                 DBWorkbench.getPlatformUI().showError("Create foreign key", "Foreign keys are not supported by MyISAM engine.\n" +
@@ -57,7 +60,7 @@ public class MySQLForeignKeyManager extends SQLForeignKeyManager<MySQLTableForei
         }
         MySQLTableForeignKey foreignKey = new MySQLTableForeignKey(
             table,
-            null,
+            "",
             null,
             null,
             DBSForeignKeyModifyRule.NO_ACTION,

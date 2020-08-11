@@ -1,7 +1,7 @@
 /*
  * DBeaver - Universal Database Manager
  * Copyright (C) 2013-2016 Denis Forveille (titou10.titou10@gmail.com)
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,12 +17,6 @@
  */
 package org.jkiss.dbeaver.ext.db2.model;
 
-import java.sql.ResultSet;
-import java.sql.Timestamp;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-
 import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
 import org.jkiss.dbeaver.DBException;
@@ -32,7 +26,6 @@ import org.jkiss.dbeaver.ext.db2.model.cache.DB2TableIndexCache;
 import org.jkiss.dbeaver.ext.db2.model.dict.DB2OwnerType;
 import org.jkiss.dbeaver.ext.db2.model.fed.DB2Nickname;
 import org.jkiss.dbeaver.model.DBPEvaluationContext;
-import org.jkiss.dbeaver.model.DBPNamedObject2;
 import org.jkiss.dbeaver.model.DBPRefreshableObject;
 import org.jkiss.dbeaver.model.DBUtils;
 import org.jkiss.dbeaver.model.exec.DBCException;
@@ -45,13 +38,20 @@ import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
 import org.jkiss.dbeaver.model.struct.DBSObject;
 import org.jkiss.utils.CommonUtils;
 
+import java.sql.ResultSet;
+import java.sql.Timestamp;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
+
 /**
  * Super class for DB2 Tables, Views, Nicknames
  * 
  * @author Denis Forveille
  */
 public abstract class DB2TableBase extends JDBCTable<DB2DataSource, DB2Schema>
-    implements DBPNamedObject2, DBPRefreshableObject, DB2StatefulObject {
+    implements DBPRefreshableObject, DB2StatefulObject {
 
     private DB2TableIndexCache tableIndexCache = new DB2TableIndexCache();
 
@@ -133,7 +133,7 @@ public abstract class DB2TableBase extends JDBCTable<DB2DataSource, DB2Schema>
     // -----------------
 
     @Override
-    public Collection<DB2TableColumn> getAttributes(@NotNull DBRProgressMonitor monitor) throws DBException
+    public List<DB2TableColumn> getAttributes(@NotNull DBRProgressMonitor monitor) throws DBException
     {
         if (this instanceof DB2Table) {
             return getContainer().getTableCache().getChildren(monitor, getContainer(), (DB2Table) this);
@@ -203,7 +203,7 @@ public abstract class DB2TableBase extends JDBCTable<DB2DataSource, DB2Schema>
     }
 
     @Override
-    public Collection<DB2TableReference> getReferences(@NotNull DBRProgressMonitor monitor) throws DBException
+    public Collection<DB2TableForeignKey> getReferences(@NotNull DBRProgressMonitor monitor) throws DBException
     {
         return Collections.emptyList();
     }
@@ -218,6 +218,11 @@ public abstract class DB2TableBase extends JDBCTable<DB2DataSource, DB2Schema>
     public String getName()
     {
         return super.getName();
+    }
+
+    @Override
+    protected String getTruncateTableQuery() {
+        return "TRUNCATE TABLE " + getFullyQualifiedName(DBPEvaluationContext.DML) + " IMMEDIATE";
     }
 
     @Override

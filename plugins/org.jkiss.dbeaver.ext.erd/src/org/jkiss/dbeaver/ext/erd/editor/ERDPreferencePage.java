@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  * Copyright (C) 2011-2012 Eugene Fradkin (eugene.fradkin@gmail.com)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -47,6 +47,9 @@ public class ERDPreferencePage extends AbstractPrefPage implements IWorkbenchPre
     private IAdaptable element;
 
     private Button contentsShowViews;
+    private Button contentsShowPartitions;
+    private Button changeBorderColors;
+    private Button changeHeaderColors;
 
     private Combo modeCombo;
     private Spinner spinnerMarginTop;
@@ -69,7 +72,7 @@ public class ERDPreferencePage extends AbstractPrefPage implements IWorkbenchPre
         Composite composite = UIUtils.createPlaceholder(parent, 2, 5);
 
         createContentsGroup(store, composite);
-
+        createColorPrefGroup(store, composite);
         createVisibilityGroup(store, composite);
         createStyleGroup(store, composite);
 
@@ -84,6 +87,14 @@ public class ERDPreferencePage extends AbstractPrefPage implements IWorkbenchPre
         Group contentsGroup = UIUtils.createControlGroup(composite, ERDMessages.erd_preference_page_title_diagram_contents, 1, GridData.VERTICAL_ALIGN_BEGINNING | GridData.FILL_HORIZONTAL, 0);
         ((GridData)contentsGroup.getLayoutData()).horizontalSpan = 2;
         contentsShowViews = UIUtils.createCheckbox(contentsGroup, ERDMessages.erd_preference_page_title_shows_views, store.getBoolean(ERDConstants.PREF_DIAGRAM_SHOW_VIEWS));
+        contentsShowPartitions = UIUtils.createCheckbox(contentsGroup, ERDMessages.erd_preference_page_title_shows_partitions, store.getBoolean(ERDConstants.PREF_DIAGRAM_SHOW_PARTITIONS));
+    }
+
+    private void createColorPrefGroup(IPreferenceStore store, Composite composite) {
+        Group contentsGroup = UIUtils.createControlGroup(composite, ERDMessages.erd_preference_page_title_color_pref, 1, GridData.VERTICAL_ALIGN_BEGINNING | GridData.FILL_HORIZONTAL, 0);
+        ((GridData)contentsGroup.getLayoutData()).horizontalSpan = 2;
+        changeBorderColors = UIUtils.createCheckbox(contentsGroup, ERDMessages.erd_preference_page_title_change_border_colors, store.getBoolean(ERDConstants.PREF_DIAGRAM_CHANGE_BORDER_COLORS));
+        changeHeaderColors = UIUtils.createCheckbox(contentsGroup, ERDMessages.erd_preference_page_title_change_header_colors, store.getBoolean(ERDConstants.PREF_DIAGRAM_CHANGE_HEADER_COLORS));
     }
 
     private void createVisibilityGroup(IPreferenceStore store, Composite composite)
@@ -167,6 +178,10 @@ public class ERDPreferencePage extends AbstractPrefPage implements IWorkbenchPre
         DBPPreferenceStore store = ERDActivator.getDefault().getPreferences();
 
         store.setValue(ERDConstants.PREF_DIAGRAM_SHOW_VIEWS, contentsShowViews.getSelection());
+        store.setValue(ERDConstants.PREF_DIAGRAM_SHOW_PARTITIONS, contentsShowPartitions.getSelection());
+        store.setValue(ERDConstants.PREF_DIAGRAM_CHANGE_BORDER_COLORS, changeBorderColors.getSelection());
+        store.setValue(ERDConstants.PREF_DIAGRAM_CHANGE_HEADER_COLORS, changeHeaderColors.getSelection());
+
 
         store.setValue(ERDConstants.PREF_GRID_ENABLED, gridCheck.getSelection());
         store.setValue(ERDConstants.PREF_GRID_SNAP_ENABLED, snapCheck.getSelection());

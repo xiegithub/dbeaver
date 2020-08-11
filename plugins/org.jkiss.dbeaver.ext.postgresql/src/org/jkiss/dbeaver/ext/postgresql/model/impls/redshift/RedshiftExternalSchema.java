@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -63,6 +63,11 @@ public class RedshiftExternalSchema extends PostgreSchema {
         return true;
     }
 
+    @Override
+    public void collectObjectStatistics(DBRProgressMonitor monitor, boolean totalSizeOnly, boolean forceRefresh) throws DBException {
+        // Not supported
+    }
+
 /*
     protected void loadInfo(ResultSet dbResult)
         throws SQLException
@@ -95,17 +100,17 @@ public class RedshiftExternalSchema extends PostgreSchema {
     }
 
     @Override
-    public Collection<RedshiftExternalTable> getChildren(DBRProgressMonitor monitor) throws DBException {
+    public Collection<RedshiftExternalTable> getChildren(@NotNull DBRProgressMonitor monitor) throws DBException {
         return getExternalTables(monitor);
     }
 
     @Override
-    public RedshiftExternalTable getChild(DBRProgressMonitor monitor, String childName) throws DBException {
+    public RedshiftExternalTable getChild(@NotNull DBRProgressMonitor monitor, @NotNull String childName) throws DBException {
         return externalTableCache.getObject(monitor, this, childName);
     }
 
     @Override
-    public Class<? extends DBSEntity> getChildType(DBRProgressMonitor monitor) throws DBException {
+    public Class<? extends DBSEntity> getChildType(@NotNull DBRProgressMonitor monitor) throws DBException {
         return RedshiftExternalTable.class;
     }
 

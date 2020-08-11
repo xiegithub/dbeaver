@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,26 +16,26 @@
  */
 package org.jkiss.dbeaver.ext.postgresql.edit;
 
-import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
 import org.jkiss.dbeaver.DBException;
-import org.jkiss.dbeaver.ext.postgresql.model.PostgreSchema;
 import org.jkiss.dbeaver.ext.postgresql.model.PostgreTableBase;
 import org.jkiss.dbeaver.ext.postgresql.model.PostgreTableConstraint;
 import org.jkiss.dbeaver.ext.postgresql.model.PostgreTableConstraintBase;
+import org.jkiss.dbeaver.ext.postgresql.model.PostgreTableContainer;
 import org.jkiss.dbeaver.model.DBConstants;
 import org.jkiss.dbeaver.model.DBPEvaluationContext;
 import org.jkiss.dbeaver.model.DBPScriptObject;
 import org.jkiss.dbeaver.model.DBUtils;
 import org.jkiss.dbeaver.model.edit.DBECommandContext;
 import org.jkiss.dbeaver.model.edit.DBEPersistAction;
-import org.jkiss.dbeaver.model.impl.DBSObjectCache;
+import org.jkiss.dbeaver.model.exec.DBCExecutionContext;
 import org.jkiss.dbeaver.model.impl.edit.DBECommandAbstract;
 import org.jkiss.dbeaver.model.impl.edit.SQLDatabasePersistAction;
 import org.jkiss.dbeaver.model.impl.sql.edit.struct.SQLConstraintManager;
 import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
 import org.jkiss.dbeaver.model.sql.SQLUtils;
 import org.jkiss.dbeaver.model.struct.DBSEntityConstraintType;
+import org.jkiss.dbeaver.model.struct.cache.DBSObjectCache;
 import org.jkiss.utils.CommonUtils;
 
 import java.util.Collections;
@@ -49,17 +49,17 @@ public class PostgreConstraintManager extends SQLConstraintManager<PostgreTableC
 
     @Nullable
     @Override
-    public DBSObjectCache<PostgreSchema, PostgreTableConstraintBase> getObjectsCache(PostgreTableConstraintBase object)
+    public DBSObjectCache<PostgreTableContainer, PostgreTableConstraintBase> getObjectsCache(PostgreTableConstraintBase object)
     {
-        return object.getTable().getContainer().constraintCache;
+        return object.getTable().getContainer().getSchema().constraintCache;
     }
 
     @Override
     protected PostgreTableConstraintBase createDatabaseObject(
-        DBRProgressMonitor monitor, DBECommandContext context, final PostgreTableBase parent,
-        Object from)
+        DBRProgressMonitor monitor, DBECommandContext context, final Object container,
+        Object from, Map<String, Object> options)
     {
-        return new PostgreTableConstraint(parent, "NewConstraint", DBSEntityConstraintType.UNIQUE_KEY);
+        return new PostgreTableConstraint((PostgreTableBase) container, "NewConstraint", DBSEntityConstraintType.UNIQUE_KEY);
     }
 
     @Override
@@ -80,14 +80,6 @@ public class PostgreConstraintManager extends SQLConstraintManager<PostgreTableC
         return super.getNestedDeclaration(monitor, owner, command, options);
     }
 
-    @NotNull
-    protected String getAddConstraintTypeClause(PostgreTableConstraintBase constraint) {
-        if (constraint.getConstraintType() == DBSEntityConstraintType.UNIQUE_KEY) {
-            return "UNIQUE"; //$NON-NLS-1$
-        }
-        return super.getAddConstraintTypeClause(constraint);
-    }
-
     @Override
     protected void appendConstraintDefinition(StringBuilder decl, DBECommandAbstract<PostgreTableConstraintBase> command) {
         if (command.getObject().getConstraintType() == DBSEntityConstraintType.CHECK) {
@@ -98,7 +90,7 @@ public class PostgreConstraintManager extends SQLConstraintManager<PostgreTableC
     }
 
     @Override
-    protected void addObjectModifyActions(DBRProgressMonitor monitor, List<DBEPersistAction> actionList, ObjectChangeCommand command, Map<String, Object> options)
+    protected void addObjectModifyActions(DBRProgressMonitor monitor, DBCExecutionContext executionContext, List<DBEPersistAction> actionList, ObjectChangeCommand command, Map<String, Object> options)
     {
         if (command.getProperty(DBConstants.PROP_ID_DESCRIPTION) != null) {
             addConstraintCommentAction(actionList, command.getObject());

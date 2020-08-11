@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,20 +18,23 @@ package org.jkiss.dbeaver.ext.generic.edit;
 
 import org.jkiss.code.Nullable;
 import org.jkiss.dbeaver.ext.generic.model.GenericTable;
+import org.jkiss.dbeaver.ext.generic.model.GenericTableBase;
 import org.jkiss.dbeaver.ext.generic.model.GenericTableForeignKey;
 import org.jkiss.dbeaver.ext.generic.model.GenericUtils;
 import org.jkiss.dbeaver.model.edit.DBECommandContext;
-import org.jkiss.dbeaver.model.impl.DBSObjectCache;
 import org.jkiss.dbeaver.model.impl.sql.edit.struct.SQLForeignKeyManager;
 import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
 import org.jkiss.dbeaver.model.struct.DBSObject;
+import org.jkiss.dbeaver.model.struct.cache.DBSObjectCache;
 import org.jkiss.dbeaver.model.struct.rdb.DBSForeignKeyDeferability;
 import org.jkiss.dbeaver.model.struct.rdb.DBSForeignKeyModifyRule;
+
+import java.util.Map;
 
 /**
  * Generic foreign manager
  */
-public class GenericForeignKeyManager extends SQLForeignKeyManager<GenericTableForeignKey, GenericTable> {
+public class GenericForeignKeyManager extends SQLForeignKeyManager<GenericTableForeignKey, GenericTableBase> {
 
     @Nullable
     @Override
@@ -41,19 +44,22 @@ public class GenericForeignKeyManager extends SQLForeignKeyManager<GenericTableF
     }
 
     @Override
-    public boolean canCreateObject(GenericTable parent) {
-        return parent.getDataSource().getSQLDialect().supportsAlterTableConstraint();
+    public boolean canCreateObject(Object container) {
+        return container instanceof GenericTable &&
+            (!((GenericTable) container).isPersisted() ||
+            ((GenericTable) container).getDataSource().getSQLDialect().supportsAlterTableConstraint());
     }
 
     @Override
     public boolean canDeleteObject(GenericTableForeignKey object) {
-        return object.getDataSource().getSQLDialect().supportsAlterTableConstraint();
+        return !object.isPersisted() || object.getDataSource().getSQLDialect().supportsAlterTableConstraint();
     }
 
     @Override
-    protected GenericTableForeignKey createDatabaseObject(DBRProgressMonitor monitor, DBECommandContext context, final GenericTable table, Object from) {
+    protected GenericTableForeignKey createDatabaseObject(DBRProgressMonitor monitor, DBECommandContext context, final Object container, Object from, Map<String, Object> options) {
+        GenericTableBase tableBase = (GenericTableBase)container;
         GenericTableForeignKey foreignKey = new GenericTableForeignKey(
-            table,
+            tableBase,
             null,
             null,
             null,
@@ -66,7 +72,7 @@ public class GenericForeignKeyManager extends SQLForeignKeyManager<GenericTableF
     }
 
     @Override
-    protected boolean isLegacyForeignKeySyntax(GenericTable owner) {
+    protected boolean isLegacyForeignKeySyntax(GenericTableBase owner) {
         return GenericUtils.isLegacySQLDialect(owner);
     }
 }

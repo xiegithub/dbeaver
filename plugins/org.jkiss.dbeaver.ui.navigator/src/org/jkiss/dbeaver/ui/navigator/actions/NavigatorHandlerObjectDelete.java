@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -136,7 +136,7 @@ public class NavigatorHandlerObjectDelete extends NavigatorHandlerObjectBase imp
                 resource.delete(IResource.FORCE | IResource.KEEP_HISTORY, new NullProgressMonitor());
             }
         } catch (CoreException e) {
-            log.error(e);
+            DBWorkbench.getPlatformUI().showError("Resource delete error", "Error deleting '" + resource.getFullPath().toString() + "'", e);
             return false;
         }
         return true;
@@ -295,7 +295,7 @@ public class NavigatorHandlerObjectDelete extends NavigatorHandlerObjectBase imp
             } else {
                 DBNNode node = NavigatorUtils.getSelectedNode(selection);
                 if (node != null) {
-                    element.setText(UINavigatorMessages.actions_navigator_delete_ + " " + node.getNodeType()  + " '" + node.getNodeName() + "'");
+                    element.setText(UINavigatorMessages.actions_navigator_delete_ + " " + node.getNodeTypeLabel()  + " '" + node.getNodeName() + "'");
                 }
             }
         }

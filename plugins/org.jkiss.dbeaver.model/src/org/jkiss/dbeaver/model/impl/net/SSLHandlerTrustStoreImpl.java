@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -49,10 +49,10 @@ public class SSLHandlerTrustStoreImpl extends SSLHandlerImpl {
     public static void initializeTrustStore(DBRProgressMonitor monitor, DBPDataSource dataSource, DBWHandlerConfiguration sslConfig) throws DBException, IOException {
         final DBACertificateStorage securityManager = dataSource.getContainer().getPlatform().getCertificateStorage();
 
-        final String caCertProp = sslConfig.getProperties().get(PROP_SSL_CA_CERT);
-        final String clientCertProp = sslConfig.getProperties().get(PROP_SSL_CLIENT_CERT);
-        final String clientCertKeyProp = sslConfig.getProperties().get(PROP_SSL_CLIENT_KEY);
-        final String selfSignedCert = sslConfig.getProperties().get(PROP_SSL_SELF_SIGNED_CERT);
+        final String caCertProp = sslConfig.getStringProperty(PROP_SSL_CA_CERT);
+        final String clientCertProp = sslConfig.getStringProperty(PROP_SSL_CLIENT_CERT);
+        final String clientCertKeyProp = sslConfig.getStringProperty(PROP_SSL_CLIENT_KEY);
+        final String selfSignedCert = sslConfig.getStringProperty(PROP_SSL_SELF_SIGNED_CERT);
 
         {
             // Trust keystore
@@ -95,7 +95,7 @@ public class SSLHandlerTrustStoreImpl extends SSLHandlerImpl {
         KeyManager[] keyManagers = keyManagerFactory.getKeyManagers();
 
         TrustManager[] trustManagers;
-        if (CommonUtils.toBoolean(sslConfig.getProperties().get(PROP_SSL_SELF_SIGNED_CERT))) {
+        if (sslConfig.getBooleanProperty(PROP_SSL_SELF_SIGNED_CERT)) {
             trustManagers = CertificateGenHelper.NON_VALIDATING_TRUST_MANAGERS;
         } else {
             TrustManagerFactory trustManagerFactory = TrustManagerFactory.getInstance("PKIX");

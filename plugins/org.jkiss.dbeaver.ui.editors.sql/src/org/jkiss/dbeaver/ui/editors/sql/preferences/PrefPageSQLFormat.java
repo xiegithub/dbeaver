@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  * Copyright (C) 2011-2012 Eugene Fradkin (eugene.fradkin@gmail.com)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -18,6 +18,7 @@
 package org.jkiss.dbeaver.ui.editors.sql.preferences;
 
 import org.eclipse.jface.dialogs.IDialogPage;
+import org.eclipse.jface.text.TextSelection;
 import org.eclipse.jface.text.source.ISourceViewer;
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.custom.StyledText;
@@ -35,6 +36,7 @@ import org.jkiss.dbeaver.Log;
 import org.jkiss.dbeaver.model.DBPDataSource;
 import org.jkiss.dbeaver.model.DBPDataSourceContainer;
 import org.jkiss.dbeaver.model.DBPIdentifierCase;
+import org.jkiss.dbeaver.model.DBUtils;
 import org.jkiss.dbeaver.model.exec.DBCExecutionContext;
 import org.jkiss.dbeaver.model.preferences.DBPPreferenceStore;
 import org.jkiss.dbeaver.model.sql.SQLModelPreferences;
@@ -48,10 +50,10 @@ import org.jkiss.dbeaver.ui.editors.StringEditorInput;
 import org.jkiss.dbeaver.ui.editors.SubEditorSite;
 import org.jkiss.dbeaver.ui.editors.sql.SQLEditorBase;
 import org.jkiss.dbeaver.ui.editors.sql.SQLPreferenceConstants;
+import org.jkiss.dbeaver.ui.editors.sql.internal.SQLEditorMessages;
 import org.jkiss.dbeaver.ui.editors.sql.preferences.format.SQLExternalFormatterConfigurationPage;
 import org.jkiss.dbeaver.ui.editors.sql.preferences.format.SQLFormatterConfigurator;
 import org.jkiss.dbeaver.ui.editors.sql.preferences.format.tokenized.SQLTokenizedFormatterConfigurationPage;
-import org.jkiss.dbeaver.ui.editors.sql.internal.SQLEditorMessages;
 import org.jkiss.dbeaver.ui.preferences.TargetPrefPage;
 import org.jkiss.dbeaver.utils.ContentUtils;
 import org.jkiss.dbeaver.utils.GeneralUtils;
@@ -59,6 +61,7 @@ import org.jkiss.dbeaver.utils.PrefUtils;
 import org.jkiss.utils.CommonUtils;
 
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
@@ -78,6 +81,7 @@ public class PrefPageSQLFormat extends TargetPrefPage
 
     // Formatter
     private Combo formatterSelector;
+    private Button formatCurrentQueryCheck;
 
     private SQLEditorBase sqlViewer;
     private Composite formatterConfigPlaceholder;
@@ -109,7 +113,7 @@ public class PrefPageSQLFormat extends TargetPrefPage
     @Override
     protected Control createPreferenceContent(Composite parent)
     {
-        Composite composite = UIUtils.createPlaceholder(parent, 2, 5);
+        Composite composite = UIUtils.createPlaceholder(parent, 3, 5);
 
         formatterSelector = UIUtils.createLabelCombo(composite, SQLEditorMessages.pref_page_sql_format_label_formatter, SWT.DROP_DOWN | SWT.READ_ONLY);
         formatterSelector.setLayoutData(new GridData(GridData.HORIZONTAL_ALIGN_BEGINNING));
@@ -127,9 +131,11 @@ public class PrefPageSQLFormat extends TargetPrefPage
         });
         formatterSelector.setLayoutData(new GridData(GridData.HORIZONTAL_ALIGN_BEGINNING));
 
+        formatCurrentQueryCheck = UIUtils.createCheckbox(composite, "Format active query only", "Formats only active query or selected text. Otherwise formats entire SQL script", true, 1);
+
         Composite formatterGroup = UIUtils.createPlaceholder(composite, 1, 5);
         formatterGroup.setLayoutData(new GridData(GridData.FILL_HORIZONTAL));
-        ((GridData)formatterGroup.getLayoutData()).horizontalSpan = 2;
+        ((GridData)formatterGroup.getLayoutData()).horizontalSpan = 3;
 
 /*
         {
@@ -162,7 +168,7 @@ public class PrefPageSQLFormat extends TargetPrefPage
             // SQL preview
             Composite previewGroup = new Composite(composite, SWT.BORDER);
             GridData gd = new GridData(GridData.FILL_BOTH);
-            gd.horizontalSpan = 2;
+            gd.horizontalSpan = 3;
             previewGroup.setLayoutData(gd);
             previewGroup.setLayout(new FillLayout());
 
@@ -173,7 +179,7 @@ public class PrefPageSQLFormat extends TargetPrefPage
                     if (container != null) {
                         final DBPDataSource dataSource = container.getDataSource();
                         if (dataSource != null) {
-                            return dataSource.getDefaultInstance().getDefaultContext(false);
+                            return DBUtils.getDefaultContext(dataSource.getDefaultInstance(), false);
                         }
                     }
                     return null;
@@ -181,7 +187,7 @@ public class PrefPageSQLFormat extends TargetPrefPage
             };
             try {
                 try (final InputStream sqlStream = getClass().getResourceAsStream(FORMAT_FILE_NAME)) {
-                    final String sqlText = ContentUtils.readToString(sqlStream, GeneralUtils.DEFAULT_ENCODING);
+                    final String sqlText = ContentUtils.readToString(sqlStream, StandardCharsets.UTF_8);
                     IEditorSite subSite = new SubEditorSite(UIUtils.getActiveWorkbenchWindow().getActivePage().getActivePart().getSite());
                     StringEditorInput sqlInput = new StringEditorInput("SQL preview", sqlText, true, GeneralUtils.getDefaultFileEncoding());
                     sqlViewer.init(subSite, sqlInput);
@@ -226,6 +232,7 @@ public class PrefPageSQLFormat extends TargetPrefPage
     protected void loadPreferences(DBPPreferenceStore store)
     {
         styleBoldKeywords.setSelection(store.getBoolean(SQLPreferenceConstants.SQL_FORMAT_BOLD_KEYWORDS));
+        formatCurrentQueryCheck.setSelection(store.getBoolean(SQLPreferenceConstants.SQL_FORMAT_ACTIVE_QUERY));
 
         String formatterId = store.getString(SQLModelPreferences.SQL_FORMAT_FORMATTER);
         for (int i = 0; i < formatters.size(); i++) {
@@ -247,6 +254,7 @@ public class PrefPageSQLFormat extends TargetPrefPage
             curConfigurator.saveSettings(getTargetPreferenceStore());
         }
         store.setValue(SQLPreferenceConstants.SQL_FORMAT_BOLD_KEYWORDS, styleBoldKeywords.getSelection());
+        store.setValue(SQLPreferenceConstants.SQL_FORMAT_ACTIVE_QUERY, formatCurrentQueryCheck.getSelection());
 
         store.setValue(SQLModelPreferences.SQL_FORMAT_FORMATTER,
             formatters.get(formatterSelector.getSelectionIndex()).getId().toUpperCase(Locale.ENGLISH));
@@ -297,7 +305,10 @@ public class PrefPageSQLFormat extends TargetPrefPage
                 curConfigurator = GeneralUtils.adapt(sqlFormatter, SQLFormatterConfigurator.class);
             }
             if (curConfigurator instanceof IDialogPage) {
-                curConfigurator.configure(selFormatter);
+                curConfigurator.configure(selFormatter, () -> {
+                    curConfigurator.saveSettings(getTargetPreferenceStore());
+                    formatSQL();
+                });
                 ((IDialogPage)curConfigurator).createControl(formatterConfigPlaceholder);
                 curConfigurator.loadSettings(getTargetPreferenceStore());
             }
@@ -316,14 +327,17 @@ public class PrefPageSQLFormat extends TargetPrefPage
     private void formatSQL() {
         try {
             try (final InputStream sqlStream = getClass().getResourceAsStream(FORMAT_FILE_NAME)) {
-                final String sqlText = ContentUtils.readToString(sqlStream, GeneralUtils.DEFAULT_ENCODING);
+                final String sqlText = ContentUtils.readToString(sqlStream, StandardCharsets.UTF_8);
                 sqlViewer.setInput(new StringEditorInput("SQL preview", sqlText, true, GeneralUtils.getDefaultFileEncoding()));
+
+                sqlViewer.getTextViewer().setSelection(new TextSelection(0, sqlText.length()));
+                sqlViewer.getTextViewer().doOperation(ISourceViewer.FORMAT);
+                sqlViewer.getTextViewer().setSelection(new TextSelection(0, 0));
+                sqlViewer.reloadSyntaxRules();
             }
         } catch (Exception e) {
             log.error(e);
         }
-        sqlViewer.getTextViewer().doOperation(ISourceViewer.FORMAT);
-        sqlViewer.reloadSyntaxRules();
     }
 
 }

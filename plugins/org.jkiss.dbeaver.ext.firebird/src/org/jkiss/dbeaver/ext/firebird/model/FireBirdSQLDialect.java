@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,6 +16,7 @@
  */
 package org.jkiss.dbeaver.ext.firebird.model;
 
+import org.jkiss.code.NotNull;
 import org.jkiss.dbeaver.ext.generic.model.GenericSQLDialect;
 import org.jkiss.dbeaver.model.DBPEvaluationContext;
 import org.jkiss.dbeaver.model.exec.jdbc.JDBCDatabaseMetaData;
@@ -39,9 +40,10 @@ public class FireBirdSQLDialect extends GenericSQLDialect {
     };
 
     public FireBirdSQLDialect() {
-        super("FireBird");
+        super("Firebird");
     }
 
+    @NotNull
     @Override
     public String[] getDDLKeywords() {
         return DDL_KEYWORDS;
@@ -59,6 +61,12 @@ public class FireBirdSQLDialect extends GenericSQLDialect {
 
     public void initDriverSettings(JDBCDataSource dataSource, JDBCDatabaseMetaData metaData) {
         super.initDriverSettings(dataSource, metaData);
+        turnFunctionIntoKeyword("TRUNCATE");
+    }
+
+    @Override
+    public boolean supportsAliasInSelect() {
+        return true;
     }
 
     @Override

@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,6 +26,7 @@ import org.eclipse.swt.layout.FillLayout;
 import org.eclipse.swt.layout.GridData;
 import org.eclipse.swt.widgets.Composite;
 import org.eclipse.swt.widgets.Control;
+import org.eclipse.swt.widgets.Text;
 import org.eclipse.ui.internal.part.StatusPart;
 import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
@@ -36,7 +37,11 @@ import org.jkiss.dbeaver.runtime.DBWorkbench;
 import org.jkiss.dbeaver.runtime.ui.UIServiceSQL;
 import org.jkiss.dbeaver.ui.UIUtils;
 import org.jkiss.dbeaver.ui.controls.CustomSashForm;
-import org.jkiss.dbeaver.ui.controls.resultset.*;
+import org.jkiss.dbeaver.ui.controls.resultset.AbstractPresentation;
+import org.jkiss.dbeaver.ui.controls.resultset.IResultSetController;
+import org.jkiss.dbeaver.ui.controls.resultset.ResultSetCopySettings;
+import org.jkiss.dbeaver.ui.controls.resultset.ResultSetUtils;
+import org.jkiss.dbeaver.ui.editors.TextEditorUtils;
 
 /**
  * Error message presentation.
@@ -54,6 +59,7 @@ public class ErrorPresentation extends AbstractPresentation {
     private StatusPart statusPart;
     private Composite sqlPanel;
     private StyledText textWidget;
+    private Object editorPanel;
 
     public ErrorPresentation(String sqlText, IStatus status) {
         this.sqlText = sqlText;
@@ -71,13 +77,19 @@ public class ErrorPresentation extends AbstractPresentation {
         errorComposite.setLayoutData(new GridData(GridData.FILL_BOTH));
         statusPart = new StatusPart(errorComposite, status);
 
+        for (Control child : errorComposite.getChildren()) {
+            if (child instanceof Text) {
+                TextEditorUtils.enableHostEditorKeyBindingsSupport(controller.getSite(), child);
+            }
+        }
+
         sqlPanel = UIUtils.createComposite(partDivider, 1);
         sqlPanel.setLayout(new FillLayout());
         UIServiceSQL serviceSQL = DBWorkbench.getService(UIServiceSQL.class);
         try {
-            Object panel = serviceSQL.createSQLPanel(controller.getSite(), sqlPanel, controller, "SQL", true, sqlText);
-            if (panel instanceof TextViewer) {
-                textWidget = ((TextViewer) panel).getTextWidget();
+            editorPanel = serviceSQL.createSQLPanel(controller.getSite(), sqlPanel, controller, "SQL", true, sqlText);
+            if (editorPanel instanceof TextViewer) {
+                textWidget = ((TextViewer) editorPanel).getTextWidget();
             }
         } catch (DBException e) {
             textWidget = new StyledText(sqlPanel, SWT.BORDER | SWT.READ_ONLY);
@@ -148,6 +160,15 @@ public class ErrorPresentation extends AbstractPresentation {
     @Override
     public String copySelectionToString(ResultSetCopySettings settings) {
         return null;
+    }
+
+    @Override
+    public void dispose() {
+        super.dispose();
+        UIServiceSQL serviceSQL = DBWorkbench.getService(UIServiceSQL.class);
+        if (serviceSQL != null) {
+            serviceSQL.disposeSQLPanel(editorPanel);
+        }
     }
 
 }

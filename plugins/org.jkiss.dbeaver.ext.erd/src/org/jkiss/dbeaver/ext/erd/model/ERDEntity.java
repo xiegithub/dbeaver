@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,14 +20,17 @@
 package org.jkiss.dbeaver.ext.erd.model;
 
 import org.jkiss.code.NotNull;
-import org.jkiss.dbeaver.DBException;
 import org.jkiss.dbeaver.Log;
 import org.jkiss.dbeaver.ext.erd.editor.ERDAttributeVisibility;
 import org.jkiss.dbeaver.model.DBPDataSource;
 import org.jkiss.dbeaver.model.DBUtils;
 import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
 import org.jkiss.dbeaver.model.runtime.VoidProgressMonitor;
-import org.jkiss.dbeaver.model.struct.*;
+import org.jkiss.dbeaver.model.struct.DBSEntity;
+import org.jkiss.dbeaver.model.struct.DBSEntityAssociation;
+import org.jkiss.dbeaver.model.struct.DBSEntityAttribute;
+import org.jkiss.dbeaver.model.struct.DBSEntityReferrer;
+import org.jkiss.dbeaver.model.virtual.DBVUtils;
 import org.jkiss.utils.CommonUtils;
 
 import java.util.*;
@@ -35,7 +38,7 @@ import java.util.*;
 /**
  * Model object representing a relational database Table
  * Also includes the bounds of the table so that the diagram can be
- * restored following a save, although ideally this should be
+ * restored following a serializeDiagram, although ideally this should be
  * in a separate diagram specific model hierarchy
  */
 public class ERDEntity extends ERDElement<DBSEntity> {
@@ -65,7 +68,7 @@ public class ERDEntity extends ERDElement<DBSEntity> {
     }
 
     public DBPDataSource getDataSource() {
-        return dataSource;
+        return dataSource != null ? dataSource : getObject().getDataSource();
     }
 
     public String getAlias() {
@@ -156,13 +159,14 @@ public class ERDEntity extends ERDElement<DBSEntity> {
         try {
             Set<DBSEntityAttribute> fkAttrs = new HashSet<>();
             // Make associations
-            Collection<? extends DBSEntityAssociation> fks = getObject().getAssociations(monitor);
+            Collection<? extends DBSEntityAssociation> fks = DBVUtils.getAllAssociations(monitor, getObject());
             if (fks != null) {
                 for (DBSEntityAssociation fk : fks) {
                     if (fk instanceof DBSEntityReferrer) {
                         fkAttrs.addAll(DBUtils.getEntityAttributes(monitor, (DBSEntityReferrer) fk));
                     }
-                    ERDEntity entity2 = diagram.getEntityMap().get(fk.getAssociatedEntity());
+                    ERDEntity entity2 = diagram.getEntityMap().get(
+                        DBVUtils.getRealEntity(monitor, fk.getAssociatedEntity()));
                     if (entity2 == null) {
                         //log.debug("Table '" + fk.getReferencedKey().getTable().getFullyQualifiedName() + "' not found in ERD");
                         if (unresolvedKeys == null) {
@@ -181,14 +185,16 @@ public class ERDEntity extends ERDElement<DBSEntity> {
             }
 
             // Mark attribute's fk flag
-            for (ERDEntityAttribute attribute : this.getAttributes()) {
-                if (fkAttrs.contains(attribute.getObject())) {
-                    attribute.setInForeignKey(true);
+            if (!fkAttrs.isEmpty()) {
+                for (ERDEntityAttribute attribute : this.getAttributes()) {
+                    if (fkAttrs.contains(attribute.getObject())) {
+                        attribute.setInForeignKey(true);
+                    }
                 }
             }
 
-        } catch (DBException e) {
-            log.warn("Can't load table '" + getObject().getName() + "' foreign keys", e);
+        } catch (Throwable e) {
+            log.error("Can't load table '" + getObject().getName() + "' foreign keys", e);
         }
     }
 
@@ -199,7 +205,8 @@ public class ERDEntity extends ERDElement<DBSEntity> {
         for (Iterator<DBSEntityAssociation> iter = unresolvedKeys.iterator(); iter.hasNext(); ) {
             final DBSEntityAssociation fk = iter.next();
             if (fk.getReferencedConstraint() != null) {
-                ERDEntity refEntity = diagram.getEntityMap().get(fk.getReferencedConstraint().getParentObject());
+                ERDEntity refEntity = diagram.getEntityMap().get(
+                    DBVUtils.tryGetRealEntity(fk.getReferencedConstraint().getParentObject()));
                 if (refEntity != null) {
                     ERDAssociation erdAssociation = diagram.getDecorator().createAutoAssociation(diagram, fk, this, refEntity, reflect);
                     if (erdAssociation != null) {

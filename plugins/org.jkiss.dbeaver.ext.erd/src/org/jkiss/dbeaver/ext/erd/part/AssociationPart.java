@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -155,14 +155,15 @@ public class AssociationPart extends PropertyAwareConnectionPart {
         ERDAssociation association = getAssociation();
         boolean identifying = ERDUtils.isIdentifyingAssociation(association);
 
-        if (association.getObject().getConstraintType() == DBSEntityConstraintType.INHERITANCE) {
+        DBSEntityConstraintType constraintType = association.getObject().getConstraintType();
+        if (constraintType == DBSEntityConstraintType.INHERITANCE) {
             final PolygonDecoration srcDec = new PolygonDecoration();
             srcDec.setTemplate(PolygonDecoration.TRIANGLE_TIP);
             srcDec.setFill(true);
             srcDec.setBackgroundColor(getParent().getViewer().getControl().getBackground());
             srcDec.setScale(10, 6);
             conn.setTargetDecoration(srcDec);
-        } else if (association.getObject().getConstraintType() == DBSEntityConstraintType.FOREIGN_KEY) {
+        } else if (constraintType.isAssociation()) {
             final CircleDecoration sourceDecor = new CircleDecoration();
             sourceDecor.setRadius(3);
             sourceDecor.setFill(true);
@@ -177,9 +178,10 @@ public class AssociationPart extends PropertyAwareConnectionPart {
             }
         }
 
-        if (!identifying || association.isLogical()) {
+        if (!identifying || constraintType.isLogical()) {
             conn.setLineStyle(SWT.LINE_CUSTOM);
-            conn.setLineDash(new float[]{5});
+            conn.setLineDash(
+                constraintType.isLogical() ? new float[]{ 4  } : new float[]{ 5 });
         }
     }
 

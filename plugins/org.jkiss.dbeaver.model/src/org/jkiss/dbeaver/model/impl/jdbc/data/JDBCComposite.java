@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -34,12 +34,13 @@ import org.jkiss.dbeaver.model.impl.struct.AbstractStructDataType;
 import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
 import org.jkiss.dbeaver.model.runtime.VoidProgressMonitor;
 import org.jkiss.dbeaver.model.struct.*;
+import org.jkiss.utils.ArrayUtils;
 import org.jkiss.utils.CommonUtils;
 
 import java.sql.*;
 import java.util.Arrays;
-import java.util.Collection;
 import java.util.Date;
+import java.util.List;
 
 /**
  * abstract struct implementation.
@@ -82,6 +83,9 @@ public abstract class JDBCComposite implements DBDComposite, DBDValueCloneable {
     @Override
     public boolean isNull()
     {
+        if (ArrayUtils.isEmpty(values)) {
+            return true;
+        }
         for (Object value : values) {
             if (!DBUtils.isNullValue(value)) {
                 return false;
@@ -179,12 +183,22 @@ public abstract class JDBCComposite implements DBDComposite, DBDValueCloneable {
         return values[position];
     }
 
+    public Object getAttributeValue(@NotNull String attrName) throws DBCException {
+        DBSEntityAttribute attribute = DBUtils.findObject(attributes, attrName);
+        return attribute == null ? null : getAttributeValue(attribute);
+    }
+
     @Override
-    public void setAttributeValue(@NotNull DBSAttributeBase attribute, @Nullable Object value) {
+    public void setAttributeValue(@NotNull DBSAttributeBase attribute, @Nullable Object value) throws DBCException {
         if (!CommonUtils.equalObjects(values[attribute.getOrdinalPosition()], value)) {
             this.values[attribute.getOrdinalPosition()] = value;
             this.modified = true;
         }
+    }
+
+    @Override
+    public String toString() {
+        return getStringRepresentation();
     }
 
     protected class StructType extends AbstractStructDataType<DBPDataSource> implements DBSEntity {
@@ -216,7 +230,7 @@ public abstract class JDBCComposite implements DBDComposite, DBDValueCloneable {
 
         @Nullable
         @Override
-        public Collection<? extends DBSEntityAttribute> getAttributes(@NotNull DBRProgressMonitor monitor) {
+        public List<? extends DBSEntityAttribute> getAttributes(@NotNull DBRProgressMonitor monitor) {
             return Arrays.asList(attributes);
         }
     }
@@ -290,7 +304,10 @@ public abstract class JDBCComposite implements DBDComposite, DBDValueCloneable {
 
         @Override
         public int hashCode() {
-            return (int) (name.hashCode() + valueType + maxLength + scale + precision + typeName.hashCode() + ordinalPosition);
+            return (int) ((name == null ? 0 : name.hashCode()) +
+                valueType + maxLength + CommonUtils.toInt(scale) + CommonUtils.toInt(precision) +
+                (typeName == null ? 0 : typeName.hashCode()) +
+                ordinalPosition);
         }
 
         @Nullable

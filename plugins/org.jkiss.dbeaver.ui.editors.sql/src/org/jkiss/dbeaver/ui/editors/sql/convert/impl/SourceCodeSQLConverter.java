@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,7 +24,7 @@ import org.jkiss.dbeaver.Log;
 import org.jkiss.dbeaver.model.sql.SQLDialect;
 import org.jkiss.dbeaver.model.sql.SQLSyntaxManager;
 import org.jkiss.dbeaver.ui.editors.sql.convert.ISQLTextConverter;
-import org.jkiss.dbeaver.ui.editors.sql.syntax.SQLRuleManager;
+import org.jkiss.dbeaver.ui.editors.sql.syntax.SQLRuleScanner;
 import org.jkiss.utils.CommonUtils;
 
 import java.util.Map;
@@ -45,7 +45,7 @@ public abstract class SourceCodeSQLConverter implements ISQLTextConverter {
     public String convertText(
             @NotNull SQLDialect dialect,
             @NotNull SQLSyntaxManager syntaxManager,
-            @NotNull SQLRuleManager ruleManager,
+            @NotNull SQLRuleScanner ruleManager,
             @NotNull IDocument document,
             int startPos,
             int length,
@@ -70,7 +70,7 @@ public abstract class SourceCodeSQLConverter implements ISQLTextConverter {
                 lineDelimiter = " "; // Space
             }
             StringBuilder result = new StringBuilder();
-            convertSourceLines(result, sourceLines, lineDelimiter);
+            convertSourceLines(result, sourceLines, lineDelimiter, options);
             return result.toString();
         } catch (BadLocationException e) {
             log.error(e);
@@ -78,6 +78,6 @@ public abstract class SourceCodeSQLConverter implements ISQLTextConverter {
         }
     }
 
-    protected abstract void convertSourceLines(StringBuilder result, String[] sourceLines, String lineDelimiter);
+    protected abstract void convertSourceLines(StringBuilder result, String[] sourceLines, String lineDelimiter, Map<String, Object> options);
 
 }

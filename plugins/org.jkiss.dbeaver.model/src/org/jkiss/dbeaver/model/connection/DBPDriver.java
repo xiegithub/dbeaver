@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,9 +23,10 @@ import org.jkiss.dbeaver.DBException;
 import org.jkiss.dbeaver.model.DBPDataSourceProvider;
 import org.jkiss.dbeaver.model.DBPImage;
 import org.jkiss.dbeaver.model.DBPNamedObject;
-import org.jkiss.dbeaver.model.preferences.DBPPropertyDescriptor;
 import org.jkiss.dbeaver.model.navigator.meta.DBXTreeNode;
+import org.jkiss.dbeaver.model.preferences.DBPPropertyDescriptor;
 import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
+import org.jkiss.dbeaver.model.sql.SQLDialectMetadata;
 
 import java.util.Collection;
 import java.util.List;
@@ -41,6 +42,9 @@ public interface DBPDriver extends DBPNamedObject
      */
     @NotNull
     DBPDataSourceProvider getDataSourceProvider();
+
+    @NotNull
+    DBPDataSourceProviderDescriptor getProviderDescriptor();
 
     @NotNull
     String getId();
@@ -65,6 +69,9 @@ public interface DBPDriver extends DBPNamedObject
     DBPImage getIcon();
 
     @NotNull
+    DBPImage getPlainIcon();
+
+    @NotNull
     DBPImage getIconBig();
 
     @Nullable
@@ -82,18 +89,30 @@ public interface DBPDriver extends DBPNamedObject
     @Nullable
     String getPropertiesWebURL();
 
+    @NotNull
+    SQLDialectMetadata getScriptDialect();
+
     boolean isClientRequired();
 
     boolean supportsDriverProperties();
 
     boolean isEmbedded();
     boolean isAnonymousAccess();
+    boolean isAllowsEmptyPassword();
     boolean isLicenseRequired();
     boolean isCustomDriverLoader();
     boolean isUseURL();
+    // Can be created
     boolean isInstantiable();
+    // Driver shipped along with JDK/DBeaver, doesn't need any additional libraries. Basically it is ODBC driver.
     boolean isInternalDriver();
+    // Custom driver: created by user
     boolean isCustom();
+    // Temporary driver: used for automatically created drivers when connection  configuration is broken
+    boolean isTemporary();
+
+    boolean isDisabled();
+    DBPDriver getReplacedBy();
 
     int getPromotedScore();
 
@@ -104,13 +123,13 @@ public interface DBPDriver extends DBPNamedObject
     Collection<DBPPropertyDescriptor> getConnectionPropertyDescriptors();
 
     @NotNull
-    Map<Object, Object> getDefaultConnectionProperties();
+    Map<String, Object> getDefaultConnectionProperties();
 
     @NotNull
-    Map<Object, Object> getConnectionProperties();
+    Map<String, Object> getConnectionProperties();
 
     @NotNull
-    Map<Object, Object> getDriverParameters();
+    Map<String, Object> getDriverParameters();
 
     @Nullable
     Object getDriverParameter(String name);
@@ -137,7 +156,7 @@ public interface DBPDriver extends DBPNamedObject
     List<? extends DBPDriverFileSource> getDriverFileSources();
 
     @NotNull
-    Object getDriverInstance(@NotNull DBRProgressMonitor monitor) throws DBException;
+    <T> T getDriverInstance(@NotNull DBRProgressMonitor monitor) throws DBException;
 
     void loadDriver(DBRProgressMonitor monitor) throws DBException;
 

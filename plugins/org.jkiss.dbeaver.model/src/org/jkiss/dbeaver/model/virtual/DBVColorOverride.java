@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -40,6 +40,18 @@ public class DBVColorOverride {
         this.attributeValues = attributeValues;
         this.colorForeground = colorForeground;
         this.colorBackground = colorBackground;
+    }
+
+    public DBVColorOverride(DBVColorOverride source) {
+        this.attributeName = source.attributeName;
+        this.isRange = source.isRange;
+        this.singleColumn = source.singleColumn;
+        this.operator = source.operator;
+        this.attributeValues = source.attributeValues == null ? null : Arrays.copyOf(source.attributeValues, source.attributeValues.length);
+        this.colorForeground = source.colorForeground;
+        this.colorBackground = source.colorBackground;
+        this.colorForeground2 = source.colorForeground2;
+        this.colorBackground2 = source.colorBackground2;
     }
 
     public String getAttributeName() {

@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,7 +24,7 @@ import org.jkiss.dbeaver.model.DBPNamedObject;
 import org.jkiss.dbeaver.model.DBUtils;
 import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
 import org.jkiss.dbeaver.model.struct.*;
-import org.jkiss.dbeaver.model.struct.rdb.DBSTable;
+import org.jkiss.dbeaver.model.struct.rdb.DBSTablePartition;
 import org.jkiss.dbeaver.ui.UIUtils;
 import org.jkiss.utils.CommonUtils;
 
@@ -40,6 +40,8 @@ public class DiagramObjectCollector {
 
     private final EntityDiagram diagram;
     private final List<ERDEntity> erdEntities = new ArrayList<>();
+    private boolean showViews;
+    private boolean showPartitions;
 
     public DiagramObjectCollector(EntityDiagram diagram)
     {
@@ -48,34 +50,48 @@ public class DiagramObjectCollector {
 
     public static Collection<DBSEntity> collectTables(
         DBRProgressMonitor monitor,
-        Collection<? extends DBSObject> roots)
+        Collection<? extends DBSObject> roots,
+        boolean forceShowViews)
         throws DBException
     {
         Set<DBSEntity> tables = new LinkedHashSet<>();
-        collectTables(monitor, roots, tables);
+        collectTables(monitor, roots, tables, forceShowViews);
         return tables;
+    }
+
+    public void setShowViews(boolean showViews) {
+        this.showViews = showViews;
     }
 
     private static void collectTables(
         DBRProgressMonitor monitor,
         Collection<? extends DBSObject> roots,
-        Set<DBSEntity> tables)
+        Set<DBSEntity> tables,
+        boolean forceShowViews)
         throws DBException
     {
+        boolean showPartitions = ERDActivator.getDefault().getPreferenceStore().getBoolean(ERDConstants.PREF_DIAGRAM_SHOW_PARTITIONS);
+        boolean showViews = ERDActivator.getDefault().getPreferenceStore().getBoolean(ERDConstants.PREF_DIAGRAM_SHOW_VIEWS);
+
         for (DBSObject root : roots) {
             if (monitor.isCanceled()) {
                 break;
             }
+            root = DBUtils.getPublicObject(root);
             if (root instanceof DBSAlias) {
                 root = ((DBSAlias) root).getTargetObject(monitor);
             }
+
             if (root instanceof DBSFolder) {
-                collectTables(monitor, ((DBSFolder) root).getChildrenObjects(monitor), tables);
+                collectTables(monitor, ((DBSFolder) root).getChildrenObjects(monitor), tables, false);
             } else if (root instanceof DBSEntity) {
+                if ((root instanceof DBSTablePartition && !showPartitions) || (DBUtils.isView((DBSEntity) root) && !(showViews || forceShowViews))) {
+                    continue;
+                }
                 tables.add((DBSEntity) root);
             }
             if (root instanceof DBSObjectContainer) {
-                collectTables(monitor, (DBSObjectContainer) root, tables);
+                collectTables(monitor, (DBSObjectContainer) root, tables, showViews, showPartitions);
             }
         }
     }
@@ -83,7 +99,9 @@ public class DiagramObjectCollector {
     private static void collectTables(
         DBRProgressMonitor monitor,
         DBSObjectContainer container,
-        Set<DBSEntity> tables)
+        Set<DBSEntity> tables,
+        boolean showViews,
+        boolean showPartitions)
         throws DBException
     {
         if (monitor.isCanceled()) {
@@ -102,9 +120,13 @@ public class DiagramObjectCollector {
                     continue;
                 }
                 if (entity instanceof DBSEntity) {
+                    if ((entity instanceof DBSTablePartition && !showPartitions) || (DBUtils.isView((DBSEntity) entity) && !showViews)) {
+                        continue;
+                    }
+
                     tables.add((DBSEntity) entity);
                 } else if (entity instanceof DBSObjectContainer) {
-                    collectTables(monitor, (DBSObjectContainer) entity, tables);
+                    collectTables(monitor, (DBSObjectContainer) entity, tables, showViews, showPartitions);
                 }
             }
         }
@@ -115,15 +137,10 @@ public class DiagramObjectCollector {
         Collection<? extends DBSObject> roots)
         throws DBException
     {
-        boolean showViews = ERDActivator.getDefault().getPreferenceStore().getBoolean(ERDConstants.PREF_DIAGRAM_SHOW_VIEWS);
-        Collection<DBSEntity> tables = collectTables(monitor, roots);
+        Collection<DBSEntity> tables = collectTables(monitor, roots, showViews);
         for (DBSEntity table : tables) {
             if (DBUtils.isHiddenObject(table)) {
                 // Skip hidden tables
-                continue;
-            }
-            if (!showViews && table instanceof DBSTable && ((DBSTable) table).isView()) {
-                // Skip views
                 continue;
             }
             addDiagramEntity(monitor, table);
@@ -161,7 +178,7 @@ public class DiagramObjectCollector {
         return erdEntities;
     }
 
-    public static List<ERDEntity> generateEntityList(final EntityDiagram diagram, Collection<DBPNamedObject> objects)
+    public static List<ERDEntity> generateEntityList(final EntityDiagram diagram, Collection<DBPNamedObject> objects, boolean forceShowViews)
     {
         final List<DBSObject> roots = new ArrayList<>();
         for (DBPNamedObject object : objects) {
@@ -175,6 +192,9 @@ public class DiagramObjectCollector {
         try {
             UIUtils.runInProgressService(monitor -> {
                 DiagramObjectCollector collector = new DiagramObjectCollector(diagram);
+                collector.setShowViews(forceShowViews);
+                //boolean showViews = ERDActivator.getDefault().getPreferenceStore().getBoolean(ERDConstants.PREF_DIAGRAM_SHOW_VIEWS);
+
                 try {
                     collector.generateDiagramObjects(monitor, roots);
                 } catch (DBException e) {

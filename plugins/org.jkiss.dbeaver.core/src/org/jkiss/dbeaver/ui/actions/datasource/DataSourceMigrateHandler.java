@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,7 +21,6 @@ import org.eclipse.core.commands.ExecutionEvent;
 import org.eclipse.core.commands.ExecutionException;
 import org.eclipse.jface.viewers.ISelection;
 import org.eclipse.jface.viewers.IStructuredSelection;
-import org.eclipse.ui.IWorkbenchWindow;
 import org.eclipse.ui.handlers.HandlerUtil;
 import org.jkiss.dbeaver.runtime.DBWorkbench;
 import org.jkiss.dbeaver.ui.dialogs.ActiveWizardDialog;
@@ -40,7 +39,7 @@ public class DataSourceMigrateHandler extends AbstractHandler {
             ActiveWizardDialog dialog = new ActiveWizardDialog(
                 HandlerUtil.getActiveWorkbenchWindow(event),
                 new MigrateConnectionWizard(
-                    DBWorkbench.getPlatform().getProjectManager().getDataSourceRegistry(DBWorkbench.getPlatform().getProjectManager().getActiveProject()),
+                    DBWorkbench.getPlatform().getWorkspace().getActiveProject().getDataSourceRegistry(),
                     currentSelection instanceof IStructuredSelection ? (IStructuredSelection) currentSelection : null));
             dialog.open();
         }

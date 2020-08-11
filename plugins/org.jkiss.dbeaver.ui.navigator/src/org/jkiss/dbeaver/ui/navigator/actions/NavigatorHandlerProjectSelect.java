@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -32,8 +32,8 @@ public class NavigatorHandlerProjectSelect extends NavigatorHandlerObjectBase {
 
     @Override
     public Object execute(ExecutionEvent event) throws ExecutionException {
-        final DBNProject projectNode = DBWorkbench.getPlatform().getNavigatorModel().getRoot().getProject(
-            DBWorkbench.getPlatform().getProjectManager().getActiveProject());
+        final DBNProject projectNode = DBWorkbench.getPlatform().getNavigatorModel().getRoot().getProjectNode(
+            DBWorkbench.getPlatform().getWorkspace().getActiveProject());
         if (projectNode != null) {
             final IWorkbenchWindow workbenchWindow = HandlerUtil.getActiveWorkbenchWindow(event);
             try {

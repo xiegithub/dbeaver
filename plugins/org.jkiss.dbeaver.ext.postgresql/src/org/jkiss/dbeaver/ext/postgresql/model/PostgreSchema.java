@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,6 +23,9 @@ import org.jkiss.dbeaver.Log;
 import org.jkiss.dbeaver.ext.postgresql.PostgreConstants;
 import org.jkiss.dbeaver.ext.postgresql.PostgreUtils;
 import org.jkiss.dbeaver.model.*;
+import org.jkiss.dbeaver.model.edit.DBEPersistAction;
+import org.jkiss.dbeaver.model.exec.DBCException;
+import org.jkiss.dbeaver.model.exec.DBCSession;
 import org.jkiss.dbeaver.model.exec.jdbc.JDBCPreparedStatement;
 import org.jkiss.dbeaver.model.exec.jdbc.JDBCResultSet;
 import org.jkiss.dbeaver.model.exec.jdbc.JDBCSession;
@@ -54,7 +57,19 @@ import java.util.stream.Collectors;
 /**
  * PostgreSchema
  */
-public class PostgreSchema implements DBSSchema, DBPNamedObject2, DBPSaveableObject, DBPRefreshableObject, DBPSystemObject, DBSProcedureContainer, PostgreObject, PostgreScriptObject {
+public class PostgreSchema implements
+    DBSSchema,
+    PostgreTableContainer,
+    DBPNamedObject2,
+    DBPSaveableObject,
+    DBPRefreshableObject,
+    DBPSystemObject,
+    DBSProcedureContainer,
+    DBPObjectStatisticsCollector,
+    PostgreObject,
+    PostgreScriptObject,
+    PostgrePrivilegeOwner
+{
 
     private static final Log log = Log.getLog(PostgreSchema.class);
 
@@ -63,6 +78,7 @@ public class PostgreSchema implements DBSSchema, DBPNamedObject2, DBPSaveableObj
     protected String name;
     protected String description;
     protected long ownerId;
+    private Object schemaAcl;
     protected boolean persisted;
 
     public final ExtensionCache extensionCache = new ExtensionCache();
@@ -72,6 +88,7 @@ public class PostgreSchema implements DBSSchema, DBPNamedObject2, DBPSaveableObj
     private final ProceduresCache proceduresCache = new ProceduresCache();
     public final IndexCache indexCache = new IndexCache();
     public final PostgreDataTypeCache dataTypeCache = new PostgreDataTypeCache();
+    protected volatile boolean hasStatistics;
 
     public PostgreSchema(PostgreDatabase database, String name, ResultSet dbResult)
         throws SQLException {
@@ -93,6 +110,7 @@ public class PostgreSchema implements DBSSchema, DBPNamedObject2, DBPSaveableObj
         this.oid = JDBCUtils.safeGetLong(dbResult, "oid");
         this.ownerId = JDBCUtils.safeGetLong(dbResult, "nspowner");
         this.description = JDBCUtils.safeGetString(dbResult, "description");
+        this.schemaAcl = JDBCUtils.safeGetObject(dbResult, "nspacl");
         this.persisted = true;
     }
 
@@ -114,6 +132,7 @@ public class PostgreSchema implements DBSSchema, DBPNamedObject2, DBPSaveableObj
         this.name = newName;
     }
 
+    @Property(viewable = false, order = 2)
     @Override
     public long getObjectId() {
         return this.oid;
@@ -121,7 +140,17 @@ public class PostgreSchema implements DBSSchema, DBPNamedObject2, DBPSaveableObj
 
     @Property(order = 4)
     public PostgreRole getOwner(DBRProgressMonitor monitor) throws DBException {
-        return database.getRoleById(monitor, ownerId);
+        return database.getDataSource().getServerType().supportsRoles() ? database.getRoleById(monitor, ownerId) : null;
+    }
+
+    @Override
+    public Collection<PostgrePrivilege> getPrivileges(DBRProgressMonitor monitor, boolean includeNestedObjects) throws DBException {
+        return PostgreUtils.extractPermissionsFromACL(monitor, this, schemaAcl);
+    }
+
+    @Override
+    public String generateChangeOwnerQuery(String owner) {
+        return null;
     }
 
     public void setOwner(PostgreRole role) {
@@ -148,6 +177,11 @@ public class PostgreSchema implements DBSSchema, DBPNamedObject2, DBPSaveableObj
     @Override
     public PostgreDataSource getDataSource() {
         return database.getDataSource();
+    }
+
+    @Override
+    public PostgreSchema getSchema() {
+        return this;
     }
 
     @Override
@@ -344,6 +378,10 @@ public class PostgreSchema implements DBSSchema, DBPNamedObject2, DBPSaveableObj
         return name;
     }
 
+    public boolean isPublicSchema() {
+        return PostgreConstants.PUBLIC_SCHEMA_NAME.equals(name);
+    }
+
     public boolean isCatalogSchema() {
         return PostgreConstants.CATALOG_SCHEMA_NAME.equals(name);
     }
@@ -361,6 +399,7 @@ public class PostgreSchema implements DBSSchema, DBPNamedObject2, DBPSaveableObj
         if (!CommonUtils.isEmpty(getDescription())) {
             sql.append("\nCOMMENT ON SCHEMA ").append(DBUtils.getQuotedIdentifier(this))
                 .append(" IS ").append(SQLUtils.quoteString(this, getDescription()));
+            sql.append(";\n");
         }
 
         if (CommonUtils.getOption(options, PostgreConstants.OPTION_DDL_SHOW_FULL)) {
@@ -387,25 +426,22 @@ public class PostgreSchema implements DBSSchema, DBPNamedObject2, DBPSaveableObj
 
             if (!monitor.isCanceled()) {
                 Collection<PostgreTableBase> tablesOrViews = getTableCache().getAllObjects(monitor, this);
-                monitor.beginTask("Load tabless and views", tablesOrViews.size());
+
+                List<PostgreTableBase> allTables = new ArrayList<>();
                 for (PostgreTableBase tableOrView : tablesOrViews) {
                     monitor.subTask(tableOrView.getName());
                     if (tableOrView instanceof PostgreSequence) {
                         addDDLLine(sql, tableOrView.getObjectDefinitionText(monitor, options));
                     } else {
-                        addDDLLine(sql,
-                            DBStructUtils.generateTableDDL(monitor, tableOrView, options, false));
-                    }
-                    monitor.worked(1);
-                    if (monitor.isCanceled()) {
-                        break;
+                        allTables.add(tableOrView);
                     }
                 }
+                DBStructUtils.generateTableListDDL(monitor, sql, allTables, options, false);
                 monitor.done();
             }
             if (!monitor.isCanceled()) {
                 Collection<PostgreProcedure> procedures = getProcedures(monitor);
-                monitor.beginTask("Load tabless and views", procedures.size());
+                monitor.beginTask("Load procedures", procedures.size());
                 for (PostgreProcedure procedure : procedures) {
                     monitor.subTask(procedure.getName());
                     addDDLLine(sql, procedure.getObjectDefinitionText(monitor, options));
@@ -417,6 +453,14 @@ public class PostgreSchema implements DBSSchema, DBPNamedObject2, DBPSaveableObj
                 monitor.done();
             }
         }
+
+        List<DBEPersistAction> actions = new ArrayList<>();
+        PostgreUtils.getObjectGrantPermissionActions(monitor, this, actions, options);
+        if (!actions.isEmpty()) {
+            sql.append("\n\n");
+            sql.append(SQLUtils.generateScript(getDataSource(), actions.toArray(new DBEPersistAction[0]), false));
+        }
+
 
         return sql.toString();
     }
@@ -432,15 +476,71 @@ public class PostgreSchema implements DBSSchema, DBPNamedObject2, DBPSaveableObj
         throw new DBException("Schema DDL is read-only");
     }
 
+    @Override
+    public boolean isStatisticsCollected() {
+        return hasStatistics || !getDataSource().getServerType().supportsTableStatistics();
+    }
+
+    @Override
+    public void collectObjectStatistics(DBRProgressMonitor monitor, boolean totalSizeOnly, boolean forceRefresh) throws DBException {
+        if (hasStatistics && !forceRefresh) {
+            return;
+        }
+        try (DBCSession session = DBUtils.openMetaSession(monitor, this, "Read relation statistics")) {
+            try (JDBCPreparedStatement dbStat = ((JDBCSession)session).prepareStatement(
+                "select c.oid," +
+                    "pg_catalog.pg_total_relation_size(c.oid) as total_rel_size," +
+                    "pg_catalog.pg_relation_size(c.oid) as rel_size\n" +
+                    "FROM pg_class c\n" +
+                    "WHERE c.relnamespace=?"))
+            {
+                dbStat.setLong(1, getObjectId());
+                try (JDBCResultSet dbResult = dbStat.executeQuery()) {
+                    while (dbResult.next()) {
+                        long tableId = dbResult.getLong(1);
+                        PostgreTableBase table = getTable(monitor, tableId);
+                        if (table instanceof PostgreTableReal) {
+                            ((PostgreTableReal) table).fetchStatistics(dbResult);
+                        }
+                    }
+                }
+            } catch (SQLException e) {
+                throw new DBCException("Error reading schema relation statistics", e);
+            }
+        } finally {
+            hasStatistics = true;
+        }
+    }
+
     class ExtensionCache extends JDBCObjectCache<PostgreSchema, PostgreExtension> {
 
+        @NotNull
         @Override
         protected JDBCStatement prepareObjectsStatement(@NotNull JDBCSession session, @NotNull PostgreSchema owner)
             throws SQLException {
             final JDBCPreparedStatement dbStat = session.prepareStatement(
-                "SELECT e.oid,e.* FROM pg_catalog.pg_extension e " +
-                    "\nWHERE e.extnamespace=?" +
-                    "\nORDER BY e.oid"
+                    "SELECT \n" + 
+                    " e.oid,\n" + 
+                    " cfg.tbls,\n" +
+                    " e.* \n" + 
+                    "FROM \n" + 
+                    " pg_catalog.pg_extension e \n" + 
+                    " join pg_namespace n on n.oid =e.extnamespace\n" +
+                    " left join  (\n" + 
+                    "         select\n" + 
+                    "            ARRAY_AGG(ns.nspname || '.' ||  cls.relname) tbls, oid_ext\n" + 
+                    "          from\n" + 
+                    "            (\n" + 
+                    "            select\n" + 
+                    "                unnest(e1.extconfig) oid , e1.oid oid_ext\n" + 
+                    "            from\n" + 
+                    "                pg_catalog.pg_extension e1 ) c \n" + 
+                    "                join    pg_class cls on cls.oid = c.oid \n" + 
+                    "                join pg_namespace ns on ns.oid = cls.relnamespace\n" + 
+                    "            group by oid_ext        \n" + 
+                    "         ) cfg on cfg.oid_ext = e.oid\n" + 
+                    "\nWHERE e.extnamespace=?\n" +
+                    "ORDER BY e.oid"  
             );
             dbStat.setLong(1, PostgreSchema.this.getObjectId());
             return dbStat;
@@ -449,12 +549,14 @@ public class PostgreSchema implements DBSSchema, DBPNamedObject2, DBPSaveableObj
         @Override
         protected PostgreExtension fetchObject(@NotNull JDBCSession session, @NotNull PostgreSchema owner, @NotNull JDBCResultSet dbResult)
             throws SQLException, DBException {
-            return new PostgreExtension(owner, dbResult);
+            //return new PostgreExtension(owner, dbResult);
+            return null;
         }
     }
 
     class AggregateCache extends JDBCObjectCache<PostgreSchema, PostgreAggregate> {
 
+        @NotNull
         @Override
         protected JDBCStatement prepareObjectsStatement(@NotNull JDBCSession session, @NotNull PostgreSchema owner)
             throws SQLException {
@@ -476,7 +578,7 @@ public class PostgreSchema implements DBSSchema, DBPNamedObject2, DBPSaveableObj
         }
     }
 
-    public class TableCache extends JDBCStructLookupCache<PostgreSchema, PostgreTableBase, PostgreTableColumn> {
+    public class TableCache extends JDBCStructLookupCache<PostgreTableContainer, PostgreTableBase, PostgreTableColumn> {
 
         protected TableCache() {
             super("relname");
@@ -485,15 +587,15 @@ public class PostgreSchema implements DBSSchema, DBPNamedObject2, DBPSaveableObj
 
         @NotNull
         @Override
-        public JDBCStatement prepareLookupStatement(@NotNull JDBCSession session, @NotNull PostgreSchema postgreSchema, @Nullable PostgreTableBase object, @Nullable String objectName) throws SQLException {
+        public JDBCStatement prepareLookupStatement(@NotNull JDBCSession session, @NotNull PostgreTableContainer container, @Nullable PostgreTableBase object, @Nullable String objectName) throws SQLException {
             StringBuilder sql = new StringBuilder();
             sql.append("SELECT c.oid,c.*,d.description");
             if (getDataSource().isServerVersionAtLeast(10, 0)) {
-                sql.append(",pg_catalog.pg_get_expr(c.relpartbound, c.oid) as partition_expr");
+                sql.append(",pg_catalog.pg_get_expr(c.relpartbound, c.oid) as partition_expr,  pg_catalog.pg_get_partkeydef(c.oid) as partition_key ");
             }
             sql.append("\nFROM pg_catalog.pg_class c\n")
-                .append("LEFT OUTER JOIN pg_catalog.pg_description d ON d.objoid=c.oid AND d.objsubid=0\n")
-                .append("WHERE c.relnamespace=? AND c.relkind not in ('i','c')")
+                .append("LEFT OUTER JOIN pg_catalog.pg_description d ON d.objoid=c.oid AND d.objsubid=0 AND d.classoid='pg_class'::regclass\n")
+                .append("WHERE c.relnamespace=? AND c.relkind not in ('i','I','c')")
                 .append(object == null && objectName == null ? "" : " AND relname=?");
             final JDBCPreparedStatement dbStat = session.prepareStatement(sql.toString());
             dbStat.setLong(1, getObjectId());
@@ -503,7 +605,7 @@ public class PostgreSchema implements DBSSchema, DBPNamedObject2, DBPSaveableObj
         }
 
         @Override
-        protected PostgreTableBase fetchObject(@NotNull JDBCSession session, @NotNull PostgreSchema owner, @NotNull JDBCResultSet dbResult)
+        protected PostgreTableBase fetchObject(@NotNull JDBCSession session, @NotNull PostgreTableContainer container, @NotNull JDBCResultSet dbResult)
             throws SQLException, DBException
         {
             final String kindString = getDataSource().isServerVersionAtLeast(10, 0) 
@@ -512,18 +614,18 @@ public class PostgreSchema implements DBSSchema, DBPNamedObject2, DBPSaveableObj
                                       ? PostgreClass.RelKind.R.getCode() : JDBCUtils.safeGetString(dbResult, "relkind");
             
             PostgreClass.RelKind kind = PostgreClass.RelKind.valueOf(kindString);
-            return owner.getDataSource().getServerType().createRelationOfClass(PostgreSchema.this, kind, dbResult);
+            return container.getDataSource().getServerType().createRelationOfClass(PostgreSchema.this, kind, dbResult);
         }
 
-        protected JDBCStatement prepareChildrenStatement(@NotNull JDBCSession session, @NotNull PostgreSchema owner)
+        protected JDBCStatement prepareChildrenStatement(@NotNull JDBCSession session, @NotNull PostgreTableContainer container)
             throws SQLException {
             String sql = "SELECT c.relname,a.*,pg_catalog.pg_get_expr(ad.adbin, ad.adrelid, true) as def_value,dsc.description" +
-                getTableColumnsQueryExtraParameters(owner, null) +
+                getTableColumnsQueryExtraParameters(container.getSchema(), null) +
                 "\nFROM pg_catalog.pg_attribute a" +
                 "\nINNER JOIN pg_catalog.pg_class c ON (a.attrelid=c.oid)" +
                 "\nLEFT OUTER JOIN pg_catalog.pg_attrdef ad ON (a.attrelid=ad.adrelid AND a.attnum = ad.adnum)" +
                 "\nLEFT OUTER JOIN pg_catalog.pg_description dsc ON (c.oid=dsc.objoid AND a.attnum = dsc.objsubid)" +
-                "\nWHERE NOT a.attisdropped AND c.relnamespace=? AND c.relkind not in ('i','c')  ORDER BY a.attnum";
+                "\nWHERE NOT a.attisdropped AND c.relnamespace=? AND c.relkind not in ('i','I','c')  ORDER BY a.attnum";
 
             JDBCPreparedStatement dbStat = session.prepareStatement(sql);
             dbStat.setLong(1, PostgreSchema.this.getObjectId());
@@ -531,15 +633,15 @@ public class PostgreSchema implements DBSSchema, DBPNamedObject2, DBPSaveableObj
         }
 
         @Override
-        protected JDBCStatement prepareChildrenStatement(@NotNull JDBCSession session, @NotNull PostgreSchema owner, @Nullable PostgreTableBase forTable)
+        protected JDBCStatement prepareChildrenStatement(@NotNull JDBCSession session, @NotNull PostgreTableContainer container, @Nullable PostgreTableBase forTable)
             throws SQLException {
             if (forTable == null) {
-                return prepareChildrenStatement(session, owner);
+                return prepareChildrenStatement(session, container);
             }
 
             JDBCPreparedStatement dbStat = session.prepareStatement(
-                "SELECT c.relname,a.*,ad.oid as attr_id,pg_catalog.pg_get_expr(ad.adbin, ad.adrelid, true) as def_value,dsc.description" +
-                    getTableColumnsQueryExtraParameters(owner, forTable) +
+                "SELECT c.relname,a.*,pg_catalog.pg_get_expr(ad.adbin, ad.adrelid, true) as def_value,dsc.description" +
+                    getTableColumnsQueryExtraParameters(container.getSchema(), forTable) +
                     "\nFROM pg_catalog.pg_attribute a" +
                     "\nINNER JOIN pg_catalog.pg_class c ON (a.attrelid=c.oid)" +
                     "\nLEFT OUTER JOIN pg_catalog.pg_attrdef ad ON (a.attrelid=ad.adrelid AND a.attnum = ad.adnum)" +
@@ -550,10 +652,10 @@ public class PostgreSchema implements DBSSchema, DBPNamedObject2, DBPSaveableObj
         }
 
         @Override
-        protected PostgreTableColumn fetchChild(@NotNull JDBCSession session, @NotNull PostgreSchema owner, @NotNull PostgreTableBase table, @NotNull JDBCResultSet dbResult)
+        protected PostgreTableColumn fetchChild(@NotNull JDBCSession session, @NotNull PostgreTableContainer container, @NotNull PostgreTableBase table, @NotNull JDBCResultSet dbResult)
             throws SQLException, DBException {
             try {
-                return owner.getDataSource().getServerType().createTableColumn(session.getProgressMonitor(), PostgreSchema.this, table, dbResult);
+                return container.getDataSource().getServerType().createTableColumn(session.getProgressMonitor(), PostgreSchema.this, table, dbResult);
             } catch (DBException e) {
                 log.warn("Error reading attribute info", e);
                 return null;
@@ -562,27 +664,27 @@ public class PostgreSchema implements DBSSchema, DBPNamedObject2, DBPSaveableObj
 
     }
 
-    protected String getTableColumnsQueryExtraParameters(PostgreSchema owner, PostgreTableBase forTable) {
+    protected String getTableColumnsQueryExtraParameters(PostgreTableContainer owner, PostgreTableBase forTable) {
         return "";
     }
 
     /**
      * Constraint cache implementation
      */
-    public class ConstraintCache extends JDBCCompositeCache<PostgreSchema, PostgreTableBase, PostgreTableConstraintBase, PostgreTableConstraintColumn> {
+    public class ConstraintCache extends JDBCCompositeCache<PostgreTableContainer, PostgreTableBase, PostgreTableConstraintBase, PostgreTableConstraintColumn> {
         protected ConstraintCache() {
-            super(getTableCache(), PostgreTableBase.class, "tabrelname", "conname");
+            super(tableCache, PostgreTableBase.class, "tabrelname", "conname");
         }
 
         @NotNull
         @Override
-        protected JDBCStatement prepareObjectsStatement(JDBCSession session, PostgreSchema schema, PostgreTableBase forParent) throws SQLException {
+        protected JDBCStatement prepareObjectsStatement(JDBCSession session, PostgreTableContainer container, PostgreTableBase forParent) throws SQLException {
             StringBuilder sql = new StringBuilder(
                 "SELECT c.oid,c.*,t.relname as tabrelname,rt.relnamespace as refnamespace,d.description" +
                     "\nFROM pg_catalog.pg_constraint c" +
                     "\nINNER JOIN pg_catalog.pg_class t ON t.oid=c.conrelid" +
                     "\nLEFT OUTER JOIN pg_catalog.pg_class rt ON rt.oid=c.confrelid" +
-                    "\nLEFT OUTER JOIN pg_catalog.pg_description d ON d.objoid=c.oid AND d.objsubid=0" +
+                    "\nLEFT OUTER JOIN pg_catalog.pg_description d ON d.objoid=c.oid AND d.objsubid=0 AND d.classoid='pg_constraint'::regclass" +
                     "\nWHERE ");
             if (forParent == null) {
                 sql.append("t.relnamespace=?");
@@ -592,7 +694,7 @@ public class PostgreSchema implements DBSSchema, DBPNamedObject2, DBPSaveableObj
             sql.append("\nORDER BY c.oid");
             JDBCPreparedStatement dbStat = session.prepareStatement(sql.toString());
             if (forParent == null) {
-                dbStat.setLong(1, schema.getObjectId());
+                dbStat.setLong(1, container.getSchema().getObjectId());
             } else {
                 dbStat.setLong(1, forParent.getObjectId());
             }
@@ -601,7 +703,7 @@ public class PostgreSchema implements DBSSchema, DBPNamedObject2, DBPSaveableObj
 
         @Nullable
         @Override
-        protected PostgreTableConstraintBase fetchObject(JDBCSession session, PostgreSchema schema, PostgreTableBase table, String childName, JDBCResultSet resultSet) throws SQLException, DBException {
+        protected PostgreTableConstraintBase fetchObject(JDBCSession session, PostgreTableContainer container, PostgreTableBase table, String childName, JDBCResultSet resultSet) throws SQLException, DBException {
             String name = JDBCUtils.safeGetString(resultSet, "conname");
             String type = JDBCUtils.safeGetString(resultSet, "contype");
             if (type == null) {
@@ -722,14 +824,14 @@ public class PostgreSchema implements DBSSchema, DBPNamedObject2, DBPSaveableObj
     /**
      * Index cache implementation
      */
-    class IndexCache extends JDBCCompositeCache<PostgreSchema, PostgreTableBase, PostgreIndex, PostgreIndexColumn> {
+    class IndexCache extends JDBCCompositeCache<PostgreTableContainer, PostgreTableBase, PostgreIndex, PostgreIndexColumn> {
         protected IndexCache() {
-            super(getTableCache(), PostgreTableBase.class, "tabrelname", "relname");
+            super(tableCache, PostgreTableBase.class, "tabrelname", "relname");
         }
 
         @NotNull
         @Override
-        protected JDBCStatement prepareObjectsStatement(JDBCSession session, PostgreSchema owner, PostgreTableBase forTable)
+        protected JDBCStatement prepareObjectsStatement(JDBCSession session, PostgreTableContainer container, PostgreTableBase forTable)
             throws SQLException {
             boolean supportsExprIndex = getDataSource().isServerVersionAtLeast(7, 4);
             StringBuilder sql = new StringBuilder();
@@ -768,7 +870,7 @@ public class PostgreSchema implements DBSSchema, DBPNamedObject2, DBPSaveableObj
 
         @Nullable
         @Override
-        protected PostgreIndex fetchObject(JDBCSession session, PostgreSchema owner, PostgreTableBase parent, String indexName, JDBCResultSet dbResult)
+        protected PostgreIndex fetchObject(JDBCSession session, PostgreTableContainer container, PostgreTableBase parent, String indexName, JDBCResultSet dbResult)
             throws SQLException, DBException {
             return new PostgreIndex(
                 session.getProgressMonitor(),
@@ -792,6 +894,8 @@ public class PostgreSchema implements DBSSchema, DBPNamedObject2, DBPSaveableObj
             String expr = JDBCUtils.safeGetString(dbResult, "expr");
             Collection<? extends PostgreTableColumn> attributes = parent.getAttributes(dbResult.getSession().getProgressMonitor());
             assert attributes != null;
+            PostgreAccessMethod accessMethod = object.getAccessMethod(session.getProgressMonitor());
+
             PostgreIndexColumn[] result = new PostgreIndexColumn[keyNumbers.length];
             for (int i = 0; i < keyNumbers.length; i++) {
                 long colNumber = keyNumbers[i];
@@ -808,12 +912,16 @@ public class PostgreSchema implements DBSSchema, DBPNamedObject2, DBPSaveableObj
                 int options = keyOptions == null || keyOptions.length < keyNumbers.length ? 0 : keyOptions[i];
                 long colOpClass = indColClasses == null || indColClasses.length < keyNumbers.length ? 0 : indColClasses[i];
 
+                // https://stackoverflow.com/questions/18121103/how-to-get-the-index-column-orderasc-desc-nulls-first-from-postgresql
+                // We can't rely on pg_am flags anymore because they awere removed in 9.6+
+                boolean isAscending =  (options & 1) == 0;
+
                 PostgreIndexColumn col = new PostgreIndexColumn(
                     object,
                     attr,
                     attrExpression,
                     i,
-                    colOpClass != 0 || (options & 0x01) != 0, // This is a kind of lazy hack. Actually this flag depends on access method.
+                    isAscending,
                     colOpClass,
                     false);
                 result[i] = col;
@@ -839,13 +947,15 @@ public class PostgreSchema implements DBSSchema, DBPNamedObject2, DBPSaveableObj
         @NotNull
         @Override
         public JDBCStatement prepareLookupStatement(@NotNull JDBCSession session, @NotNull PostgreSchema owner, @Nullable PostgreProcedure object, @Nullable String objectName) throws SQLException {
+            PostgreServerExtension serverType = owner.getDataSource().getServerType();
+            String oidColumn = serverType.getProceduresOidColumn(); // Hack for Redshift SP support
             JDBCPreparedStatement dbStat = session.prepareStatement(
-                "SELECT p.oid,p.*," +
+                "SELECT p." + oidColumn + ",p.*," +
                     (session.getDataSource().isServerVersionAtLeast(8, 4) ? "pg_catalog.pg_get_expr(p.proargdefaults, 0)" : "NULL") + " as arg_defaults,d.description\n" +
-                    "FROM pg_catalog.pg_proc p\n" +
-                    "LEFT OUTER JOIN pg_catalog.pg_description d ON d.objoid=p.oid\n" +
+                    "FROM pg_catalog." + serverType.getProceduresSystemTable() + " p\n" +
+                    "LEFT OUTER JOIN pg_catalog.pg_description d ON d.objoid=p." + oidColumn + "\n" +
                     "WHERE p.pronamespace=?" +
-                    (object == null ? "" : " AND p.oid=?") +
+                    (object == null ? "" : " AND p." + oidColumn + "=?") +
                     "\nORDER BY p.proname"
             );
             dbStat.setLong(1, owner.getObjectId());

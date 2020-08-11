@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,8 +29,6 @@ public final class DBeaverPreferences
     public static final String AGENT_LONG_OPERATION_TIMEOUT = "agent.long.operation.timeout"; //$NON-NLS-1$
 
     public static final String SECURITY_USE_BOUNCY_CASTLE = "security.jce.bc"; //$NON-NLS-1$
-
-    public static final String PLATFORM_LANGUAGE = "platform.language"; //$NON-NLS-1$
 
     public static final String TOOLBARS_SHOW_GENERAL_ALWAYS = "toolbars.show.general.always"; //$NON-NLS-1$
     public static final String TOOLBARS_SHOW_EDIT = "toolbars.show.edit"; //$NON-NLS-1$

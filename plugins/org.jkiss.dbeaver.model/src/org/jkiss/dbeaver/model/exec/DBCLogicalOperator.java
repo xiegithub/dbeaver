@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -88,6 +88,13 @@ public enum DBCLogicalOperator {
             return ArrayUtils.contains(arguments, srcValue);
         }
     },
+    ILIKE("ILIKE", 1) {
+        @Override
+        public boolean evaluate(Object srcValue, Object[] arguments) {
+            return srcValue != null && !ArrayUtils.isEmpty(arguments) &&
+                    SQLUtils.matchesLike(srcValue.toString(), arguments[0].toString());
+        }
+    },
     LIKE("LIKE", 1) {
         @Override
         public boolean evaluate(Object srcValue, Object[] arguments) {
@@ -113,7 +120,22 @@ public enum DBCLogicalOperator {
         public boolean evaluate(Object srcValue, Object[] arguments) {
             return false;
         }
+    },
+    CONTAINS("CONTAINS", 1) {
+        @Override
+        public boolean evaluate(Object srcValue, Object[] arguments) {
+            final Object cmpValue = arguments == null ? null : arguments[0];
+            return false;//DBUtils.compareDataValues(srcValue, cmpValue) == 0;
+        }
+    },
+    CONTAINS_KEY("CONTAINS KEY", 1) {
+        @Override
+        public boolean evaluate(Object srcValue, Object[] arguments) {
+            final Object cmpValue = arguments == null ? null : arguments[0];
+            return false;//DBUtils.compareDataValues(srcValue, cmpValue) != 0;
+        }
     };
+
 
     private final String stringValue;
     private final int argumentCount;

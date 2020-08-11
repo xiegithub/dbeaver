@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -33,10 +33,9 @@ import org.jkiss.dbeaver.model.navigator.DBNNode;
 import org.jkiss.dbeaver.model.navigator.meta.DBXTreeItem;
 import org.jkiss.dbeaver.model.struct.DBSObject;
 import org.jkiss.dbeaver.model.struct.DBSObjectFilter;
-import org.jkiss.dbeaver.runtime.DBWorkbench;
-import org.jkiss.dbeaver.ui.navigator.dialogs.EditObjectFilterDialog;
 import org.jkiss.dbeaver.ui.internal.UINavigatorMessages;
 import org.jkiss.dbeaver.ui.navigator.NavigatorUtils;
+import org.jkiss.dbeaver.ui.navigator.dialogs.EditObjectFilterDialog;
 
 import java.util.Collections;
 import java.util.Map;
@@ -65,7 +64,7 @@ public class NavigatorHandlerFilterConfig extends NavigatorHandlerObjectCreateBa
             if (objectFilter == null) {
                 objectFilter = new DBSObjectFilter();
             }
-            final DBPDataSourceRegistry dsRegistry = DBWorkbench.getPlatform().getProjectManager().getDataSourceRegistry(folder.getOwnerProject());
+            final DBPDataSourceRegistry dsRegistry = folder.getOwnerProject().getDataSourceRegistry();
             final boolean globalFilter = folder.getValueObject() instanceof DBPDataSource;
             String parentName = "?";
             if (folder.getValueObject() instanceof DBSObject) {
@@ -83,7 +82,7 @@ public class NavigatorHandlerFilterConfig extends NavigatorHandlerObjectCreateBa
                     NavigatorHandlerRefresh.refreshNavigator(Collections.singletonList(folder));
                     break;
                 case EditObjectFilterDialog.SHOW_GLOBAL_FILTERS_ID:
-                    objectFilter = folder.getDataSource().getContainer().getObjectFilter(folder.getChildrenClass(), null, false);
+                    objectFilter = folder.getDataSource().getContainer().getObjectFilter(folder.getChildrenClass(), null, true);
                     dialog = new EditObjectFilterDialog(
                         shell,
                             dsRegistry, "All " + node.getNodeType(),

@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -42,8 +42,8 @@ import org.jkiss.dbeaver.ui.controls.resultset.*;
 
 import java.math.BigDecimal;
 import java.text.DecimalFormat;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
 /**
  * RSV value view panel
@@ -86,7 +86,7 @@ public class AggregateColumnsPanel implements IResultSetPanel {
         this.aggregateTable.setHeaderVisible(true);
         this.aggregateTable.setLinesVisible(true);
         new TreeColumn(this.aggregateTable, SWT.LEFT).setText("Function");
-        new TreeColumn(this.aggregateTable, SWT.RIGHT).setText("Value");
+        new TreeColumn(this.aggregateTable, SWT.LEFT).setText("Value");
 
         if (this.presentation instanceof ISelectionProvider) {
             ((ISelectionProvider) this.presentation).addSelectionChangedListener(event -> {
@@ -152,7 +152,7 @@ public class AggregateColumnsPanel implements IResultSetPanel {
     }
 
     private void loadDefaultFunctions() {
-        for (AggregateFunctionDescriptor func : FunctionsRegistry.getInstance().getFunctions()) {
+        for (AggregateFunctionDescriptor func : FunctionsRegistry.getInstance().getAggregateFunctions()) {
             if (func.isDefault()) {
                 enabledFunctions.add(func);
             }
@@ -165,7 +165,7 @@ public class AggregateColumnsPanel implements IResultSetPanel {
         panelSettings.put(PARAM_GROUP_AS_STRINGS, aggregateAsStrings);
         IDialogSettings functionsSection = UIUtils.getSettingsSection(panelSettings, "functions");
 
-        for (AggregateFunctionDescriptor func : FunctionsRegistry.getInstance().getFunctions()) {
+        for (AggregateFunctionDescriptor func : FunctionsRegistry.getInstance().getAggregateFunctions()) {
             IDialogSettings funcSection = UIUtils.getSettingsSection(functionsSection, func.getId());
             boolean enabled = enabledFunctions.contains(func);
             funcSection.put("enabled", enabled);
@@ -198,7 +198,7 @@ public class AggregateColumnsPanel implements IResultSetPanel {
                     aggregateSelection((IResultSetSelection)selection);
                 }
             }
-            UIUtils.packColumns(aggregateTable, true, null);
+            UIUtils.packColumns(aggregateTable, false, null);
         } finally {
             aggregateTable.setRedraw(true);
         }
@@ -349,7 +349,7 @@ public class AggregateColumnsPanel implements IResultSetPanel {
         @Override
         public void run() {
             List<AggregateFunctionDescriptor> missingFunctions = new ArrayList<>();
-            for (AggregateFunctionDescriptor func : FunctionsRegistry.getInstance().getFunctions()) {
+            for (AggregateFunctionDescriptor func : FunctionsRegistry.getInstance().getAggregateFunctions()) {
                 if (!enabledFunctions.contains(func)) {
                     missingFunctions.add(func);
                 }
@@ -375,7 +375,7 @@ public class AggregateColumnsPanel implements IResultSetPanel {
         private final AggregateFunctionDescriptor func;
 
         public AddFunctionItemAction(AggregateFunctionDescriptor func) {
-            super(func.getLabel(), DBeaverIcons.getImageDescriptor(func.getIcon()));
+            super(func.getLabel(), func.getIcon() == null ? null : DBeaverIcons.getImageDescriptor(func.getIcon()));
             this.func = func;
         }
 

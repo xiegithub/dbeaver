@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -30,18 +30,15 @@ import org.jkiss.dbeaver.model.DBPRefreshableObject;
 import org.jkiss.dbeaver.model.DBPScriptObject;
 import org.jkiss.dbeaver.model.edit.DBEObjectMaker;
 import org.jkiss.dbeaver.model.edit.DBEObjectManager;
-import org.jkiss.dbeaver.model.navigator.DBNContainer;
-import org.jkiss.dbeaver.model.navigator.DBNDataSource;
-import org.jkiss.dbeaver.model.navigator.DBNDatabaseNode;
-import org.jkiss.dbeaver.model.navigator.DBNNode;
+import org.jkiss.dbeaver.model.navigator.*;
 import org.jkiss.dbeaver.model.runtime.AbstractJob;
 import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
 import org.jkiss.dbeaver.model.runtime.DBRRunnableWithProgress;
-import org.jkiss.dbeaver.model.struct.DBSInstance;
 import org.jkiss.dbeaver.model.struct.DBSInstanceLazy;
 import org.jkiss.dbeaver.model.struct.DBSObject;
 import org.jkiss.dbeaver.runtime.DBWorkbench;
 import org.jkiss.dbeaver.ui.UIUtils;
+import org.jkiss.dbeaver.ui.actions.ObjectPropertyTester;
 import org.jkiss.dbeaver.ui.editors.DatabaseNodeEditorInput;
 import org.jkiss.dbeaver.ui.editors.IDatabaseEditor;
 import org.jkiss.dbeaver.ui.editors.entity.EntityEditor;
@@ -50,6 +47,8 @@ import org.jkiss.dbeaver.utils.GeneralUtils;
 import org.jkiss.dbeaver.utils.RuntimeUtils;
 
 import java.lang.reflect.InvocationTargetException;
+import java.util.HashMap;
+import java.util.Map;
 
 public abstract class NavigatorHandlerObjectCreateBase extends NavigatorHandlerObjectBase {
 
@@ -72,6 +71,9 @@ public abstract class NavigatorHandlerObjectCreateBase extends NavigatorHandlerO
             if (container == null) {
                 throw new DBException("Can't detect container for '" + element.getNodeName() + "'");
             }
+            if (container instanceof DBNDatabaseNode && ObjectPropertyTester.isMetadataChangeDisabled((DBNDatabaseNode) container)) {
+                throw new DBException("Object create not available in simple view mode");
+            }
             if (newObjectType == null) {
                 Class<?> childType = container instanceof DBNContainer ? ((DBNContainer) container).getChildrenClass() : null;
                 if (childType == null) {
@@ -84,7 +86,18 @@ public abstract class NavigatorHandlerObjectCreateBase extends NavigatorHandlerO
             }
 
             DBSObject sourceObject = copyFrom == null ? null : copyFrom.getObject();
-            final Object parentObject = container instanceof DBNDatabaseNode ? ((DBNDatabaseNode) container).getValueObject() : null;
+            final Object parentObject;
+            if (container instanceof DBNDatabaseNode) {
+                parentObject = ((DBNDatabaseNode) container).getValueObject();
+            } else if (container instanceof DBNProject) {
+                parentObject = ((DBNProject) container).getProject();
+            } else if (container instanceof DBNProjectDatabases) {
+                parentObject = container.getOwnerProject();
+            } else if (container instanceof DBNLocalFolder) {
+                parentObject = ((DBNLocalFolder) container).getFolder();
+            } else {
+                parentObject = null;
+            }
 
             // Do not check for type - manager must do it. Potentially we can copy anything into anything.
 //            if (sourceObject != null && !childType.isAssignableFrom(sourceObject.getClass())) {
@@ -132,7 +145,10 @@ public abstract class NavigatorHandlerObjectCreateBase extends NavigatorHandlerO
                 openEditor);
 
             // Parent is model object - not node
-            createDatabaseObject(commandTarget, objectMaker, parentObject instanceof DBPObject ? (DBPObject) parentObject : null, sourceObject);
+            Map<String, Object> options = new HashMap<>();
+            options.put(DBEObjectMaker.OPTION_CONTAINER, container);
+            options.put(DBEObjectMaker.OPTION_OBJECT_TYPE, newObjectType);
+            createDatabaseObject(commandTarget, objectMaker, parentObject instanceof DBPObject ? (DBPObject) parentObject : null, sourceObject, options);
         }
         catch (Throwable e) {
             DBWorkbench.getPlatformUI().showError("Create object", null, e);
@@ -146,9 +162,10 @@ public abstract class NavigatorHandlerObjectCreateBase extends NavigatorHandlerO
         CommandTarget commandTarget,
         DBEObjectMaker<OBJECT_TYPE, CONTAINER_TYPE> objectMaker,
         CONTAINER_TYPE parentObject,
-        DBSObject sourceObject) throws DBException
+        DBSObject sourceObject,
+        Map<String, Object> options) throws DBException
     {
-        ObjectCreator<OBJECT_TYPE, CONTAINER_TYPE> objectCreator = new ObjectCreator<>(objectMaker, commandTarget, parentObject, sourceObject);
+        ObjectCreator<OBJECT_TYPE, CONTAINER_TYPE> objectCreator = new ObjectCreator<>(objectMaker, commandTarget, parentObject, sourceObject, options);
         try {
             UIUtils.runInProgressService(objectCreator);
         } catch (InvocationTargetException e) {
@@ -157,7 +174,11 @@ public abstract class NavigatorHandlerObjectCreateBase extends NavigatorHandlerO
         } catch (InterruptedException e) {
             return;
         }
-        final CreateJob<OBJECT_TYPE, CONTAINER_TYPE> job = new CreateJob<OBJECT_TYPE, CONTAINER_TYPE>(commandTarget, objectMaker, parentObject, sourceObject, objectCreator.newObject);
+        if (objectCreator.newObject == null) {
+            //DBWorkbench.getPlatformUI().showError("Null new object", "Internal error during object creation: NULL object returned (see logs).");
+            return;
+        }
+        final CreateJob<OBJECT_TYPE, CONTAINER_TYPE> job = new CreateJob<>(commandTarget, objectMaker, parentObject, sourceObject, objectCreator.newObject);
         job.schedule();
     }
 
@@ -279,20 +300,26 @@ public abstract class NavigatorHandlerObjectCreateBase extends NavigatorHandlerO
         private final CONTAINER_TYPE parentObject;
         private final DBSObject sourceObject;
         private OBJECT_TYPE newObject;
+        private Map<String, Object> options;
 
-        public ObjectCreator(DBEObjectMaker<OBJECT_TYPE, CONTAINER_TYPE> objectMaker, CommandTarget commandTarget, CONTAINER_TYPE parentObject, DBSObject sourceObject) {
+        public ObjectCreator(DBEObjectMaker<OBJECT_TYPE, CONTAINER_TYPE> objectMaker, CommandTarget commandTarget, CONTAINER_TYPE parentObject, DBSObject sourceObject, Map<String, Object> options) {
             this.objectMaker = objectMaker;
             this.commandTarget = commandTarget;
             this.parentObject = parentObject;
             this.sourceObject = sourceObject;
+            this.options = options;
         }
 
         @Override
         public void run(DBRProgressMonitor monitor) throws InvocationTargetException, InterruptedException {
+            monitor.beginTask("Create new database object", 1);
             try {
-                newObject = objectMaker.createNewObject(monitor, commandTarget.getContext(), parentObject, sourceObject);
+                monitor.subTask("Create object instance");
+                newObject = objectMaker.createNewObject(monitor, commandTarget.getContext(), parentObject, sourceObject, options);
             } catch (DBException e) {
                 throw new InvocationTargetException(e);
+            } finally {
+                monitor.done();
             }
         }
     }

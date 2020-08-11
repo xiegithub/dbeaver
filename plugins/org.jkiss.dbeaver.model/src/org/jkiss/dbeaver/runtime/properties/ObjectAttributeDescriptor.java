@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -115,7 +115,7 @@ public abstract class ObjectAttributeDescriptor {
     }
 
     public boolean isNameProperty() {
-        return id.equals(DBConstants.PROP_ID_NAME);
+        return id.equals(DBConstants.PROP_ID_NAME) || orderNumber == 1;
     }
 
     public boolean isRemote()
@@ -182,18 +182,19 @@ public abstract class ObjectAttributeDescriptor {
         for (Class<?> objectClass : classList) {
             annoProps.addAll(ObjectAttributeDescriptor.extractAnnotations(source, objectClass, filter, null));
         }
-        Collections.sort(annoProps, ATTRIBUTE_DESCRIPTOR_COMPARATOR);
+        annoProps.sort(ATTRIBUTE_DESCRIPTOR_COMPARATOR);
         return annoProps;
     }
 
     static void extractAnnotations(
-        DBPPropertySource source,
+        @Nullable DBPPropertySource source,
         @Nullable ObjectPropertyGroupDescriptor parent,
         Class<?> theClass,
         List<ObjectPropertyDescriptor> annoProps,
         IPropertyFilter filter,
         @Nullable String locale)
     {
+        Object object = source == null ? null : source.getEditableValue();
         Method[] methods = theClass.getMethods();
         Map<String, Method> passedNames = new HashMap<>();
         for (Method method : methods) {
@@ -220,7 +221,7 @@ public abstract class ObjectAttributeDescriptor {
                 }
                 // Single property
                 ObjectPropertyDescriptor desc = new ObjectPropertyDescriptor(source, parent, propInfo, method, locale);
-                if (filter != null && !filter.select(desc)) {
+                if (filter != null && !filter.select(object, desc)) {
                     continue;
                 }
                 if (prevMethod != null) {

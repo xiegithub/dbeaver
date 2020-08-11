@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,6 +23,7 @@ import org.jkiss.dbeaver.model.app.DBPDataSourceRegistry;
 import org.jkiss.dbeaver.model.messages.ModelMessages;
 import org.jkiss.dbeaver.model.meta.Property;
 import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
+import org.jkiss.dbeaver.model.runtime.VoidProgressMonitor;
 import org.jkiss.dbeaver.model.struct.DBSObject;
 import org.jkiss.utils.ArrayUtils;
 import org.jkiss.utils.CommonUtils;
@@ -45,7 +46,7 @@ public class DBNLocalFolder extends DBNNode implements DBNContainer
     }
 
     @Override
-    void dispose(boolean reflect)
+    protected void dispose(boolean reflect)
     {
         super.dispose(reflect);
     }
@@ -245,6 +246,21 @@ public class DBNLocalFolder extends DBNNode implements DBNContainer
             }
         }
         return false;
+    }
+
+    public List<DBNDataSource> getNestedDataSources() {
+        List<DBNDataSource> result = new ArrayList<>();
+        fillNestedDataSources(result);
+        return result;
+    }
+
+    private void fillNestedDataSources(List<DBNDataSource> dataSources) {
+        for (DBNNode childFolder : getChildren(new VoidProgressMonitor())) {
+            if (childFolder instanceof DBNLocalFolder) {
+                ((DBNLocalFolder) childFolder).fillNestedDataSources(dataSources);
+            }
+        }
+        dataSources.addAll(getDataSources());
     }
 
     @Override

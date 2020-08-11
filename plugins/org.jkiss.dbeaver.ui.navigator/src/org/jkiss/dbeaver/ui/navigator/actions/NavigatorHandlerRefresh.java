@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -46,6 +46,7 @@ import org.jkiss.dbeaver.ui.editors.IDatabaseEditorInput;
 import org.jkiss.dbeaver.ui.internal.UINavigatorMessages;
 import org.jkiss.dbeaver.ui.navigator.INavigatorModelView;
 import org.jkiss.dbeaver.ui.navigator.NavigatorPreferences;
+import org.jkiss.dbeaver.utils.GeneralUtils;
 
 import java.util.*;
 
@@ -61,12 +62,7 @@ public class NavigatorHandlerRefresh extends AbstractHandler {
     public Object execute(ExecutionEvent event) throws ExecutionException {
         //final IWorkbenchWindow workbenchWindow = HandlerUtil.getActiveWorkbenchWindow(event);
         final IWorkbenchPart workbenchPart = HandlerUtil.getActivePart(event);
-        INavigatorModelView navigatorView;
-        if (workbenchPart instanceof INavigatorModelView) {
-            navigatorView = (INavigatorModelView) workbenchPart;
-        } else {
-            navigatorView = workbenchPart.getAdapter(INavigatorModelView.class);
-        }
+        INavigatorModelView navigatorView = GeneralUtils.adapt(workbenchPart, INavigatorModelView.class);
         if (navigatorView == null) {
             // Try to refresh as refreshable part
             if (workbenchPart instanceof IRefreshablePart) {
@@ -121,11 +117,15 @@ public class NavigatorHandlerRefresh extends AbstractHandler {
                         }
                     }
                 });
+                monitor.beginTask("Refresh objects", refreshObjects.size());
                 Set<DBNNode> refreshedSet = new HashSet<>();
                 for (DBNNode node : refreshObjects) {
                     if (node.isDisposed() || node.isLocked()) {
                         // Skip locked nodes
                         continue;
+                    }
+                    if (monitor.isCanceled()) {
+                        break;
                     }
                     // Check this node was already refreshed
                     if (!refreshedSet.isEmpty()) {
@@ -146,9 +146,9 @@ public class NavigatorHandlerRefresh extends AbstractHandler {
                         node = node.getParentNode();
                     }
 
-                    if (!showConfirmation(node)) {
-                        continue;
-                    }
+//                    if (!showConfirmation(node)) {
+//                        continue;
+//                    }
                     setName("Refresh '" + node.getNodeName() + "'...");
                     try {
                         DBNNode refreshed = node.refreshNode(monitor, DBNEvent.FORCE_REFRESH);
@@ -159,7 +159,9 @@ public class NavigatorHandlerRefresh extends AbstractHandler {
                     catch (Throwable ex) {
                         error = ex;
                     }
+                    monitor.worked(1);
                 }
+                monitor.done();
                 return Status.OK_STATUS;
             }
         };

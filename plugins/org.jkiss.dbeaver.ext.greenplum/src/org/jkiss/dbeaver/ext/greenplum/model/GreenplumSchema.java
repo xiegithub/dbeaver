@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  * Copyright (C) 2019 Dmitriy Dubson (ddubson@pivotal.io)
  * Copyright (C) 2019 Gavin Shaw (gshaw@pivotal.io)
  * Copyright (C) 2019 Zach Marcin (zmarcin@pivotal.io)
@@ -23,10 +23,7 @@ package org.jkiss.dbeaver.ext.greenplum.model;
 import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
 import org.jkiss.dbeaver.DBException;
-import org.jkiss.dbeaver.ext.postgresql.model.PostgreDatabase;
-import org.jkiss.dbeaver.ext.postgresql.model.PostgreProcedure;
-import org.jkiss.dbeaver.ext.postgresql.model.PostgreSchema;
-import org.jkiss.dbeaver.ext.postgresql.model.PostgreTableBase;
+import org.jkiss.dbeaver.ext.postgresql.model.*;
 import org.jkiss.dbeaver.model.exec.jdbc.JDBCPreparedStatement;
 import org.jkiss.dbeaver.model.exec.jdbc.JDBCResultSet;
 import org.jkiss.dbeaver.model.exec.jdbc.JDBCSession;
@@ -48,9 +45,20 @@ public class GreenplumSchema extends PostgreSchema {
         super(owner, name, resultSet);
     }
 
+    @NotNull
     @Override
     public GreenplumDataSource getDataSource() {
         return (GreenplumDataSource) super.getDataSource();
+    }
+
+    @Override
+    public Collection<? extends JDBCTable> getChildren(@NotNull DBRProgressMonitor monitor) throws DBException {
+        return greenplumTableCache.getTypedObjects(monitor, this, PostgreTableReal.class);
+    }
+
+    @Override
+    public JDBCTable getChild(@NotNull DBRProgressMonitor monitor, @NotNull String childName) throws DBException {
+        return greenplumTableCache.getObject(monitor, this, childName);
     }
 
     @Override
@@ -103,7 +111,7 @@ public class GreenplumSchema extends PostgreSchema {
         @NotNull
         @Override
         public JDBCStatement prepareLookupStatement(@NotNull JDBCSession session,
-                                                    @NotNull PostgreSchema postgreSchema,
+                                                    @NotNull PostgreTableContainer container,
                                                     @Nullable PostgreTableBase object,
                                                     @Nullable String objectName) throws SQLException {
             String uriLocationColumn =
@@ -119,7 +127,7 @@ public class GreenplumSchema extends PostgreSchema {
                     "array_to_string(x." + execLocationColumn + ", ',') AS execlocation,\n" +
                     "pg_encoding_to_char(x.encoding) AS encoding,\n" +
                     "x.writable,\n")
-                    .append(postgreSchema.getDataSource().isServerVersionAtLeast(9,4) ?
+                    .append(container.getDataSource().isServerVersionAtLeast(9,4) ?
                             "" :
                             "case when x.fmterrtbl is not NULL then true else false end as \"is_logging_errors\",\n")
                     .append(

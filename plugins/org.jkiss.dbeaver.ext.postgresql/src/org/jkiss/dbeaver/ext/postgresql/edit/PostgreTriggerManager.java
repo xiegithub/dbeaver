@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,14 +26,14 @@ import org.jkiss.dbeaver.model.DBPEvaluationContext;
 import org.jkiss.dbeaver.model.DBUtils;
 import org.jkiss.dbeaver.model.edit.DBECommandContext;
 import org.jkiss.dbeaver.model.edit.DBEPersistAction;
-import org.jkiss.dbeaver.model.impl.DBSObjectCache;
+import org.jkiss.dbeaver.model.exec.DBCExecutionContext;
 import org.jkiss.dbeaver.model.impl.edit.SQLDatabasePersistAction;
-import org.jkiss.dbeaver.model.impl.sql.edit.SQLObjectEditor;
 import org.jkiss.dbeaver.model.impl.sql.edit.struct.SQLTriggerManager;
 import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
 import org.jkiss.dbeaver.model.sql.SQLUtils;
-import org.jkiss.dbeaver.model.struct.DBSEntityType;
 import org.jkiss.dbeaver.model.struct.DBSObject;
+import org.jkiss.dbeaver.model.struct.cache.DBSObjectCache;
+
 import java.util.List;
 import java.util.Map;
 
@@ -43,7 +43,7 @@ import java.util.Map;
 public class PostgreTriggerManager extends SQLTriggerManager<PostgreTrigger, PostgreTableReal> {//implements DBEObjectRenamer<PostgreTrigger> {
 
     @Override
-    public boolean canCreateObject(PostgreTableReal parent) {
+    public boolean canCreateObject(Object container) {
         return true;
     }
 
@@ -58,14 +58,14 @@ public class PostgreTriggerManager extends SQLTriggerManager<PostgreTrigger, Pos
     }
 
     @Override
-    protected PostgreTrigger createDatabaseObject(DBRProgressMonitor monitor, DBECommandContext context, PostgreTableReal parent, Object copyFrom) throws DBException 
+    protected PostgreTrigger createDatabaseObject(DBRProgressMonitor monitor, DBECommandContext context, Object container, Object copyFrom, Map<String, Object> options) throws DBException
     {
-        return new PostgreTrigger(monitor, parent);
+        return new PostgreTrigger(monitor, (PostgreTableReal) container);
     }
 
 
     @Override
-    protected void addObjectExtraActions(DBRProgressMonitor monitor, List<DBEPersistAction> actions, NestedObjectCommand<PostgreTrigger, PropertyHandler> command, Map<String, Object> options) throws DBException {
+    protected void addObjectExtraActions(DBRProgressMonitor monitor, DBCExecutionContext executionContext, List<DBEPersistAction> actions, NestedObjectCommand<PostgreTrigger, PropertyHandler> command, Map<String, Object> options) throws DBException {
         if (command.getProperty(DBConstants.PROP_ID_DESCRIPTION) != null) {
             actions.add(new SQLDatabasePersistAction(
                 "Comment trigger",
@@ -75,12 +75,12 @@ public class PostgreTriggerManager extends SQLTriggerManager<PostgreTrigger, Pos
     }
 
     @Override
-    protected void createOrReplaceTriggerQuery(List<DBEPersistAction> actions, PostgreTrigger trigger, boolean create) {
+    protected void createOrReplaceTriggerQuery(DBRProgressMonitor monitor, DBCExecutionContext executionContext, List<DBEPersistAction> actions, PostgreTrigger trigger, boolean create) {
         actions.add(new SQLDatabasePersistAction("Create trigger", trigger.getBody(), true));
     }
 
     @Override
-    protected void addObjectDeleteActions(List<DBEPersistAction> actions, ObjectDeleteCommand command, Map<String, Object> options)
+    protected void addObjectDeleteActions(DBRProgressMonitor monitor, DBCExecutionContext executionContext, List<DBEPersistAction> actions, ObjectDeleteCommand command, Map<String, Object> options)
     {
         actions.add(
             new SQLDatabasePersistAction("Drop trigger",

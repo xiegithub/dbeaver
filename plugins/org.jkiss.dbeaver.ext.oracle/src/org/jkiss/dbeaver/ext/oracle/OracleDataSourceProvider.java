@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  * Copyright (C) 2011-2012 Eugene Fradkin (eugene.fradkin@gmail.com)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -26,11 +26,14 @@ import org.jkiss.dbeaver.ext.oracle.oci.OCIUtils;
 import org.jkiss.dbeaver.ext.oracle.oci.OracleHomeDescriptor;
 import org.jkiss.dbeaver.model.DBPDataSource;
 import org.jkiss.dbeaver.model.DBPDataSourceContainer;
+import org.jkiss.dbeaver.model.auth.DBAUserCredentialsProvider;
 import org.jkiss.dbeaver.model.connection.DBPConnectionConfiguration;
 import org.jkiss.dbeaver.model.connection.DBPDriver;
 import org.jkiss.dbeaver.model.connection.DBPNativeClientLocation;
 import org.jkiss.dbeaver.model.connection.DBPNativeClientLocationManager;
+import org.jkiss.dbeaver.model.impl.auth.AuthModelDatabaseNative;
 import org.jkiss.dbeaver.model.impl.jdbc.JDBCDataSourceProvider;
+import org.jkiss.dbeaver.model.impl.jdbc.JDBCURL;
 import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
 import org.jkiss.utils.CommonUtils;
 
@@ -39,7 +42,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-public class OracleDataSourceProvider extends JDBCDataSourceProvider implements DBPNativeClientLocationManager {
+public class OracleDataSourceProvider extends JDBCDataSourceProvider implements DBAUserCredentialsProvider, DBPNativeClientLocationManager {
 
     public OracleDataSourceProvider()
     {
@@ -63,10 +66,11 @@ public class OracleDataSourceProvider extends JDBCDataSourceProvider implements 
             connectionType = OracleConstants.ConnectionType.BASIC;
         }
         if (connectionType == OracleConstants.ConnectionType.CUSTOM) {
-            return connectionInfo.getUrl();
+            return JDBCURL.generateUrlByTemplate(connectionInfo.getUrl(), connectionInfo);
         }
         StringBuilder url = new StringBuilder(100);
         url.append("jdbc:oracle:thin:@"); //$NON-NLS-1$
+        String databaseName = CommonUtils.notEmpty(connectionInfo.getDatabaseName());
         if (connectionType == OracleConstants.ConnectionType.TNS) {
             // TNS name specified
             // Try to get description from TNSNAMES
@@ -84,7 +88,7 @@ public class OracleDataSourceProvider extends JDBCDataSourceProvider implements 
             }
 
             final Map<String, String> tnsNames = OCIUtils.readTnsNames(oraHomePath, checkTnsAdmin);
-            final String tnsDescription = tnsNames.get(connectionInfo.getDatabaseName());
+            final String tnsDescription = tnsNames.get(databaseName);
             if (!CommonUtils.isEmpty(tnsDescription)) {
                 url.append(tnsDescription);
             } else {
@@ -94,7 +98,7 @@ public class OracleDataSourceProvider extends JDBCDataSourceProvider implements 
                 if (tnsNamesFile != null && tnsNamesFile.exists()) {
                     System.setProperty(OracleConstants.VAR_ORACLE_NET_TNS_ADMIN, tnsNamesFile.getAbsolutePath());
                 }
-                url.append(connectionInfo.getDatabaseName());
+                url.append(databaseName);
             }
         } else {
             // Basic connection info specified
@@ -114,8 +118,8 @@ public class OracleDataSourceProvider extends JDBCDataSourceProvider implements 
             } else {
                 url.append("/"); //$NON-NLS-1$
             }
-            if (!CommonUtils.isEmpty(connectionInfo.getDatabaseName())) {
-                url.append(connectionInfo.getDatabaseName());
+            if (!CommonUtils.isEmpty(databaseName)) {
+                url.append(databaseName);
             }
         }
         return url.toString();
@@ -182,5 +186,26 @@ public class OracleDataSourceProvider extends JDBCDataSourceProvider implements 
         }
         return null;
     }
+
+    @Override
+    public String getConnectionUserName(@NotNull DBPConnectionConfiguration connectionInfo) {
+        String userName = connectionInfo.getUserName();
+        String authModelId = connectionInfo.getAuthModelId();
+        if (!CommonUtils.isEmpty(authModelId) && !AuthModelDatabaseNative.ID.equals(authModelId)) {
+            return userName;
+        }
+        // FIXME: left for backward compatibility. Replaced by auth model. Remove in future.
+        if (!CommonUtils.isEmpty(userName) && userName.contains(" AS ")) {
+            return userName;
+        }
+        final String role = connectionInfo.getProviderProperty(OracleConstants.PROP_INTERNAL_LOGON);
+        return role == null ? userName : userName + " AS " + role;
+    }
+
+    @Override
+    public String getConnectionUserPassword(@NotNull DBPConnectionConfiguration connectionInfo) {
+        return connectionInfo.getUserPassword();
+    }
+
 
 }

@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -49,7 +49,7 @@ class ValidateUniqueKeyUsageDialog extends MessageDialogWithToggle {
     {
         super(
             viewer.getControl().getShell(),
-            "Possible multiple rows modification",
+            "No unique key - multiple rows modification possible",
             null,
             "There is no physical unique key defined for  '" + DBUtils.getObjectFullName(viewer.getVirtualEntityIdentifier().getUniqueKey().getParentObject(), DBPEvaluationContext.UI) +
                 "'.\nDBeaver will use all columns as unique key. Possible multiple rows modification. \nAre you sure you want to proceed?",
@@ -77,10 +77,9 @@ class ValidateUniqueKeyUsageDialog extends MessageDialogWithToggle {
                 super.buttonPressed(buttonId);
                 break;
             case IDialogConstants.INTERNAL_ID:
-                if (useAllColumns(getShell(), viewer)) {
+                if (useAllColumns(viewer)) {
                     super.buttonPressed(IDialogConstants.OK_ID);
                 }
-
                 break;
             case IDialogConstants.INTERNAL_ID + 1:
                 editCustomKey();
@@ -93,16 +92,12 @@ class ValidateUniqueKeyUsageDialog extends MessageDialogWithToggle {
     private void editCustomKey()
     {
         // Edit custom key
-        try {
-            if (viewer.editEntityIdentifier(new VoidProgressMonitor())) {
-                super.buttonPressed(IDialogConstants.OK_ID);
-            }
-        } catch (DBException e) {
-            DBWorkbench.getPlatformUI().showError("Virtual key edit", "Error editing virtual key", e);
+        if (viewer.editEntityIdentifier()) {
+            super.buttonPressed(IDialogConstants.OK_ID);
         }
     }
 
-    private static boolean useAllColumns(Shell shell, ResultSetViewer viewer)
+    private static boolean useAllColumns(ResultSetViewer viewer)
     {
         // Use all columns
         final DBDRowIdentifier identifier = viewer.getVirtualEntityIdentifier();
@@ -118,6 +113,7 @@ class ValidateUniqueKeyUsageDialog extends MessageDialogWithToggle {
             return false;
         }
         constraint.setAttributes(uniqueColumns);
+        constraint.setUseAllColumns(true);
 
         try {
             identifier.reloadAttributes(
@@ -144,7 +140,7 @@ class ValidateUniqueKeyUsageDialog extends MessageDialogWithToggle {
         }
 
         if (executionContext.getDataSource().getContainer().getPreferenceStore().getBoolean(ResultSetPreferences.RS_EDIT_USE_ALL_COLUMNS)) {
-            if (useAllColumns(viewer.getControl().getShell(), viewer)) {
+            if (useAllColumns(viewer)) {
                 return true;
             }
         }

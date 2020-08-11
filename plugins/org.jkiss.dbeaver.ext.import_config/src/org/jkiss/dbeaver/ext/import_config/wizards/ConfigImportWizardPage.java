@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -65,6 +65,30 @@ public abstract class ConfigImportWizardPage extends WizardPage {
         UIUtils.createTableColumn(connectionTable, SWT.LEFT, ImportConfigMessages.config_import_wizard_page_th_driver);
         UIUtils.createTableColumn(connectionTable, SWT.LEFT, ImportConfigMessages.config_import_wizard_page_th_url);
 
+        {
+            Composite buttonsPanel = UIUtils.createComposite(placeholder, 2);
+            UIUtils.createDialogButton(buttonsPanel, "Select All", new SelectionAdapter() {
+                @Override
+                public void widgetSelected(SelectionEvent e) {
+                    for (TableItem item : connectionTable.getItems()) {
+                        ((ImportConnectionInfo) item.getData()).setChecked(true);
+                        item.setChecked(true);
+                    }
+                    getContainer().updateButtons();
+                }
+            });
+            UIUtils.createDialogButton(buttonsPanel, "Select None", new SelectionAdapter() {
+                @Override
+                public void widgetSelected(SelectionEvent e) {
+                    for (TableItem item : connectionTable.getItems()) {
+                        item.setChecked(false);
+                        ((ImportConnectionInfo) item.getData()).setChecked(false);
+                    }
+                    getContainer().updateButtons();
+                }
+            });
+        }
+
         UIUtils.packColumns(connectionTable);
 
         connectionTable.addSelectionListener(new SelectionAdapter() {
@@ -72,8 +96,7 @@ public abstract class ConfigImportWizardPage extends WizardPage {
             public void widgetSelected(SelectionEvent e)
             {
                 TableItem item = (TableItem) e.item;
-                ImportConnectionInfo connectionInfo = (ImportConnectionInfo) item.getData();
-                connectionInfo.setChecked(item.getChecked());
+                ((ImportConnectionInfo) item.getData()).setChecked(item.getChecked());
                 getContainer().updateButtons();
             }
         });

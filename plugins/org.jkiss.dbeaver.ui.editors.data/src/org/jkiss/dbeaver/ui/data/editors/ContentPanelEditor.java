@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -57,8 +57,8 @@ import org.jkiss.dbeaver.utils.MimeTypes;
 import org.jkiss.utils.CommonUtils;
 
 import java.lang.reflect.InvocationTargetException;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
 /**
 * ControlPanelEditor
@@ -356,7 +356,10 @@ public class ContentPanelEditor extends BaseValueEditor<Control> implements IAda
         }
 
         private Menu createMenu(ToolItem toolItem) {
-            if (menu == null) {
+            if (menu != null) {
+                menu.dispose();
+            }
+            {
                 ToolBar toolBar = toolItem.getParent();
                 menu = new Menu(toolBar);
                 List<StreamValueManagerDescriptor> managers = new ArrayList<>(streamManagers.keySet());

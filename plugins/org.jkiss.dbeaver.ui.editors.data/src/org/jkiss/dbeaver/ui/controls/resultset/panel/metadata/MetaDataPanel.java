@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -37,9 +37,9 @@ import org.jkiss.dbeaver.model.runtime.load.DatabaseLoadService;
 import org.jkiss.dbeaver.ui.LoadingJob;
 import org.jkiss.dbeaver.ui.UIUtils;
 import org.jkiss.dbeaver.ui.controls.TreeContentProvider;
-import org.jkiss.dbeaver.ui.controls.itemlist.DatabaseObjectListControl;
 import org.jkiss.dbeaver.ui.controls.resultset.IResultSetPanel;
 import org.jkiss.dbeaver.ui.controls.resultset.IResultSetPresentation;
+import org.jkiss.dbeaver.ui.navigator.itemlist.DatabaseObjectListControl;
 import org.jkiss.utils.CommonUtils;
 
 import java.lang.reflect.InvocationTargetException;
@@ -68,7 +68,7 @@ public class MetaDataPanel implements IResultSetPanel {
         this.presentation = presentation;
         this.colorDisabled = presentation.getControl().getDisplay().getSystemColor(SWT.COLOR_WIDGET_DARK_SHADOW);
         this.attributeList = new MetaDataTable(parent);
-        this.attributeList.setFitWidth(false);
+        this.attributeList.setFitWidth(true);
         this.attributeList.getItemsViewer().addSelectionChangedListener(event -> {
             DBDAttributeBinding attr = getSelectedAttribute();
             if (attr != null && !updateSelection) {
@@ -189,6 +189,9 @@ public class MetaDataPanel implements IResultSetPanel {
                             text.append(((DBDAttributeBinding) item).getName());
                         }
                     }
+                    if (text.length() == 0) {
+                        return;
+                    }
                     UIUtils.setClipboardContents(getDisplay(), TextTransfer.getInstance(), text.toString());
                 }
             });
@@ -208,8 +211,10 @@ public class MetaDataPanel implements IResultSetPanel {
         protected Object getObjectValue(DBDAttributeBinding item) {
             if (item instanceof DBDAttributeBindingMeta) {
                 return item.getMetaAttribute();
-            } else {
+            } else if (item != null) {
                 return item.getAttribute();
+            } else {
+                return null;
             }
         }
 

@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,7 +29,9 @@ import org.jkiss.dbeaver.model.DBPDataSourceContainer;
 import org.jkiss.dbeaver.model.navigator.DBNNode;
 import org.jkiss.dbeaver.model.navigator.DBNResource;
 import org.jkiss.dbeaver.model.navigator.DBNUtils;
+import org.jkiss.dbeaver.runtime.DBWorkbench;
 import org.jkiss.dbeaver.ui.editors.EditorUtils;
+import org.jkiss.dbeaver.ui.editors.SimpleDatabaseEditorContext;
 import org.jkiss.dbeaver.ui.navigator.dialogs.SelectDataSourceDialog;
 import org.jkiss.dbeaver.utils.RuntimeUtils;
 
@@ -56,13 +58,16 @@ public class NavigatorHandlerAssociateScript extends NavigatorHandlerObjectBase 
             }
         }
         if (!scripts.isEmpty()) {
-            SelectDataSourceDialog dialog = new SelectDataSourceDialog(activeShell, scripts.get(0).getProject(), null);
+            SelectDataSourceDialog dialog = new SelectDataSourceDialog(
+                activeShell,
+                DBWorkbench.getPlatform().getWorkspace().getProject(scripts.get(0).getProject()),
+                null);
             if (dialog.open() == IDialogConstants.CANCEL_ID) {
                 return null;
             }
             DBPDataSourceContainer dataSource = dialog.getDataSource();
             for (IFile script : scripts) {
-                EditorUtils.setFileDataSource(script, dataSource);
+                EditorUtils.setFileDataSource(script, new SimpleDatabaseEditorContext(dataSource));
                 DBNUtils.refreshNavigatorResource(script, dataSource);
             }
         }

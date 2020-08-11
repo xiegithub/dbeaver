@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,28 +16,32 @@
  */
 package org.jkiss.dbeaver.model.navigator;
 
-import org.eclipse.core.resources.IProject;
 import org.eclipse.core.runtime.Status;
 import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
 import org.jkiss.dbeaver.DBException;
+import org.jkiss.dbeaver.model.*;
+import org.jkiss.dbeaver.model.access.DBAObject;
+import org.jkiss.dbeaver.model.exec.DBCExecutionContext;
 import org.jkiss.dbeaver.model.exec.DBExecUtils;
 import org.jkiss.dbeaver.model.messages.ModelMessages;
-import org.jkiss.dbeaver.model.*;
-import org.jkiss.dbeaver.model.exec.DBCExecutionContext;
 import org.jkiss.dbeaver.model.navigator.meta.DBXTreeFolder;
 import org.jkiss.dbeaver.model.navigator.meta.DBXTreeItem;
 import org.jkiss.dbeaver.model.navigator.meta.DBXTreeNode;
 import org.jkiss.dbeaver.model.navigator.meta.DBXTreeObject;
-import org.jkiss.dbeaver.model.runtime.*;
+import org.jkiss.dbeaver.model.runtime.DBRProgressListener;
+import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
+import org.jkiss.dbeaver.model.runtime.DBRRunnableParametrized;
+import org.jkiss.dbeaver.model.runtime.VoidProgressMonitor;
 import org.jkiss.dbeaver.model.struct.*;
+import org.jkiss.dbeaver.model.struct.rdb.DBSPackage;
+import org.jkiss.dbeaver.model.struct.rdb.DBSSequence;
 import org.jkiss.utils.ArrayUtils;
 import org.jkiss.utils.BeanUtils;
 import org.jkiss.utils.CommonUtils;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import java.lang.reflect.Modifier;
 import java.lang.reflect.Type;
 import java.util.*;
 
@@ -56,14 +60,14 @@ public abstract class DBNDatabaseNode extends DBNNode implements DBSWrapper, DBP
         super(parentNode);
     }
 
-    protected void registerNode() {
+    void registerNode() {
         DBNModel model = getModel();
         if (model != null) {
             model.addNode(this);
         }
     }
 
-    protected void unregisterNode(boolean reflect) {
+    void unregisterNode(boolean reflect) {
         DBNModel model = getModel();
         if (model != null) {
             model.removeNode(this, reflect);
@@ -71,14 +75,14 @@ public abstract class DBNDatabaseNode extends DBNNode implements DBSWrapper, DBP
     }
 
     @Override
-    void dispose(boolean reflect) {
+    protected void dispose(boolean reflect) {
         clearChildren(reflect);
         super.dispose(reflect);
     }
 
     @Override
     public String getNodeType() {
-        return getObject() == null ? "" : getMeta().getNodeType(getObject().getDataSource(), null); //$NON-NLS-1$
+        return getObject() == null ? "" : getMeta().getNodeTypeLabel(getObject().getDataSource(), null); //$NON-NLS-1$
     }
 
     @Override
@@ -169,7 +173,7 @@ public abstract class DBNDatabaseNode extends DBNNode implements DBSWrapper, DBP
 
     @Override
     public boolean allowsNavigableChildren() {
-        return !isDisposed() && this.getMeta().hasChildren(this, true);
+        return !isDisposed() && this.getMeta() != null && this.getMeta().hasChildren(this, true);
     }
 
     public boolean hasChildren(DBRProgressMonitor monitor, DBXTreeNode childType)
@@ -199,7 +203,7 @@ public abstract class DBNDatabaseNode extends DBNNode implements DBSWrapper, DBP
                     if (tmpList.isEmpty()) {
                         this.childNodes = EMPTY_NODES;
                     } else {
-                        this.childNodes = tmpList.toArray(new DBNDatabaseNode[tmpList.size()]);
+                        this.childNodes = tmpList.toArray(new DBNDatabaseNode[0]);
                     }
                     this.afterChildRead();
                 }
@@ -228,7 +232,12 @@ public abstract class DBNDatabaseNode extends DBNNode implements DBSWrapper, DBP
     }
 
     void addChildItem(DBSObject object) {
-        DBXTreeItem metaChildren = getItemsMeta();
+        DBXTreeNode metaChildren = getItemsMeta();
+        if (metaChildren == null) {
+            // There is no item meta. Maybe we are udner some folder structure
+            // Let's find a folder with right type
+            metaChildren = getFolderMeta(object.getClass());
+        }
         if (metaChildren != null) {
             final DBNDatabaseItem newChild = new DBNDatabaseItem(this, metaChildren, object, false);
             synchronized (this) {
@@ -285,7 +294,7 @@ public abstract class DBNDatabaseNode extends DBNNode implements DBSWrapper, DBP
         return locked || super.isLocked();
     }
 
-    public boolean initializeNode(DBRProgressMonitor monitor, DBRProgressListener onFinish) {
+    public boolean initializeNode(DBRProgressMonitor monitor, DBRProgressListener onFinish) throws DBException {
         if (onFinish != null) {
             onFinish.onTaskFinished(Status.OK_STATUS);
         }
@@ -312,15 +321,23 @@ public abstract class DBNDatabaseNode extends DBNNode implements DBSWrapper, DBP
         }
         DBSObject object = getObject();
         if (object instanceof DBPRefreshableObject) {
-            if (object.isPersisted()) {
-                DBSObject newObject = ((DBPRefreshableObject) object).refreshObject(monitor);
-                if (newObject == null) {
+            DBPDataSource dataSource = object.getDataSource();
+            if (object.isPersisted() && dataSource != null) {
+                DBSObject[] newObject = new DBSObject[1];
+                DBExecUtils.tryExecuteRecover(monitor, dataSource, param -> {
+                    try {
+                        newObject[0] = ((DBPRefreshableObject) object).refreshObject(monitor);
+                    } catch (DBException e) {
+                        throw new InvocationTargetException(e);
+                    }
+                });
+                if (newObject[0] == null) {
                     if (parentNode instanceof DBNDatabaseNode) {
                         ((DBNDatabaseNode) parentNode).removeChildItem(object);
                     }
                     return null;
                 } else {
-                    refreshNodeContent(monitor, newObject, source, true);
+                    refreshNodeContent(monitor, newObject[0], source, true);
                     return this;
                 }
             } else {
@@ -353,7 +370,7 @@ public abstract class DBNDatabaseNode extends DBNNode implements DBSWrapper, DBP
         }
     }
 
-    protected void clearChildren(boolean reflect) {
+    private void clearChildren(boolean reflect) {
         DBNDatabaseNode[] childrenCopy;
         synchronized (this) {
             childrenCopy = childNodes == null ? null : Arrays.copyOf(childNodes, childNodes.length);
@@ -389,35 +406,53 @@ public abstract class DBNDatabaseNode extends DBNNode implements DBSWrapper, DBP
             return;
         }
         monitor.beginTask(ModelMessages.model_navigator_load_items_, childMetas.size());
+        DBNBrowseSettings navSettings = getDataSourceContainer().getNavigatorSettings();
+        final boolean showSystem = navSettings.isShowSystemObjects();
+        final boolean showOnlyEntities = navSettings.isShowOnlyEntities();
+        final boolean hideFolders = navSettings.isHideFolders();
 
         for (DBXTreeNode child : childMetas) {
             if (monitor.isCanceled()) {
                 break;
             }
-            monitor.subTask(ModelMessages.model_navigator_load_ + " " + child.getChildrenType(object.getDataSource(), null));
+            monitor.subTask(ModelMessages.model_navigator_load_ + " " + child.getChildrenTypeLabel(object.getDataSource(), null));
+            if (showOnlyEntities && !isEntityMeta(child)) {
+                continue;
+            }
             if (child instanceof DBXTreeItem) {
                 final DBXTreeItem item = (DBXTreeItem) child;
-                boolean isLoaded = loadTreeItems(monitor, item, oldList, toList, source, reflect);
+                boolean isLoaded = loadTreeItems(monitor, item, oldList, toList, source, showSystem, hideFolders, reflect);
                 if (!isLoaded && item.isOptional() && item.getRecursiveLink() == null) {
                     // This may occur only if no child nodes was read
                     // Then we try to go on next DBX level
                     loadChildren(monitor, item, oldList, toList, source, reflect);
                 }
             } else if (child instanceof DBXTreeFolder) {
-                if (oldList == null) {
-                    // Load new folders only if there are no old ones
-                    toList.add(
-                        new DBNDatabaseFolder(this, (DBXTreeFolder) child));
+                if (hideFolders) {
+                    if (child.isVirtual()) {
+                        continue;
+                    }
+                    // Fall down
+                    loadChildren(monitor, child, oldList, toList, source, reflect);
                 } else {
-                    for (DBNDatabaseNode oldFolder : oldList) {
-                        if (oldFolder.getMeta() == child) {
-                            oldFolder.reloadChildren(monitor, source, reflect);
-                            toList.add(oldFolder);
-                            break;
+                    if (oldList == null) {
+                        // Load new folders only if there are no old ones
+                        toList.add(
+                            new DBNDatabaseFolder(this, (DBXTreeFolder) child));
+                    } else {
+                        for (DBNDatabaseNode oldFolder : oldList) {
+                            if (oldFolder.getMeta() == child) {
+                                oldFolder.reloadChildren(monitor, source, reflect);
+                                toList.add(oldFolder);
+                                break;
+                            }
                         }
                     }
                 }
             } else if (child instanceof DBXTreeObject) {
+                if (hideFolders) {
+                    continue;
+                }
                 if (oldList == null) {
                     // Load new objects only if there are no old ones
                     toList.add(
@@ -443,6 +478,26 @@ public abstract class DBNDatabaseNode extends DBNNode implements DBSWrapper, DBP
         }
     }
 
+    private boolean isEntityMeta(DBXTreeNode node) {
+        Class<?> nodeChildClass = null;
+        if (node instanceof DBXTreeItem) {
+            nodeChildClass = getChildrenClass((DBXTreeItem) node);
+        } else if (node instanceof DBXTreeFolder) {
+            nodeChildClass = getFolderChildrenClass((DBXTreeFolder) node);
+        }
+        if (nodeChildClass == null) {
+            return false;
+        }
+        // Extra check for DBSDataType, DBSSequence, DBSPackage - in some databases they are entities but we don't wont them (PG, Oracle)
+        return
+            (DBSObjectContainer.class.isAssignableFrom(nodeChildClass) &&
+                !DBSPackage.class.isAssignableFrom(nodeChildClass)) ||
+            (DBSEntity.class.isAssignableFrom(nodeChildClass) &&
+                !DBSDataType.class.isAssignableFrom(nodeChildClass) &&
+                !DBSSequence.class.isAssignableFrom(nodeChildClass) &&
+                !DBSPackage.class.isAssignableFrom(nodeChildClass)) ||
+            DBSEntityAttribute.class.isAssignableFrom(nodeChildClass);
+    }
 
     /**
      * Extract items using reflect api
@@ -451,6 +506,7 @@ public abstract class DBNDatabaseNode extends DBNNode implements DBSWrapper, DBP
      * @param meta    items meta info
      * @param oldList previous child items
      * @param toList  list ot add new items   @return true on success
+     * @param showSystem include system objects
      * @param reflect @return true on success
      * @throws DBException on any DB error
      */
@@ -459,7 +515,10 @@ public abstract class DBNDatabaseNode extends DBNNode implements DBSWrapper, DBP
         DBXTreeItem meta,
         final DBNDatabaseNode[] oldList,
         final List<DBNDatabaseNode> toList,
-        Object source, boolean reflect)
+        Object source,
+        boolean showSystem,
+        boolean hideFolders,
+        boolean reflect)
         throws DBException {
         if (this.isDisposed()) {
             // Property reading can take really long time so this node can be disposed at this moment -
@@ -471,15 +530,14 @@ public abstract class DBNDatabaseNode extends DBNNode implements DBSWrapper, DBP
         if (valueObject == null) {
             return false;
         }
-        final String propertyName = meta.getPropertyName();
-        final PropertyValueReader valueReader = new PropertyValueReader(monitor, propertyName, valueObject);
+        final PropertyValueReader valueReader = new PropertyValueReader(monitor, meta, valueObject);
         DBExecUtils.tryExecuteRecover(monitor, getDataSource(), valueReader);
         final Object propertyValue = valueReader.propertyValue;
         if (propertyValue == null) {
             return false;
         }
         if (!(propertyValue instanceof Collection<?>)) {
-            log.warn("Bad property '" + propertyName + "' value: " + propertyValue.getClass().getName()); //$NON-NLS-1$ //$NON-NLS-2$
+            log.warn("Bad property '" + meta.getPropertyName() + "' value: " + propertyValue.getClass().getName()); //$NON-NLS-1$ //$NON-NLS-2$
             return false;
         }
 
@@ -496,8 +554,6 @@ public abstract class DBNDatabaseNode extends DBNNode implements DBSWrapper, DBP
             return false;
         }
 
-        final DBPDataSourceContainer dataSourceContainer = getDataSourceContainer();
-        final boolean showSystem = dataSourceContainer.isShowSystemObjects();
         for (Object childItem : itemList) {
             if (childItem == null) {
                 continue;
@@ -510,8 +566,12 @@ public abstract class DBNDatabaseNode extends DBNNode implements DBSWrapper, DBP
                 // Skip hidden objects
                 continue;
             }
-            if (!showSystem && childItem instanceof DBPSystemObject && ((DBPSystemObject) childItem).isSystem()) {
+            if (!showSystem && DBUtils.isSystemObject(childItem)) {
                 // Skip system objects
+                continue;
+            }
+            if (hideFolders && (childItem instanceof DBAObject || childItem instanceof DBPSystemInfoObject)) {
+                // Skip all DBA objects
                 continue;
             }
             if (filter != null && !filter.matches(((DBSObject) childItem).getName())) {
@@ -586,7 +646,7 @@ public abstract class DBNDatabaseNode extends DBNNode implements DBSWrapper, DBP
         throw new IllegalStateException("No parent datasource node");
     }
 
-    @NotNull
+    @Nullable
     public DBPDataSource getDataSource() {
         DBSObject object = getObject();
         if (object != null) {
@@ -650,7 +710,7 @@ public abstract class DBNDatabaseNode extends DBNNode implements DBSWrapper, DBP
                 if (pathName.length() > 0) {
                     pathName.insert(0, '/');
                 }
-                pathName.insert(0, ((DBNDataSource) node).getDataSourceContainer().getId());
+                pathName.insert(0, node.getNodeItemPath());
             } else if (node instanceof DBNDatabaseFolder) {
                 if (pathName.length() > 0) {
                     pathName.insert(0, '/');
@@ -671,11 +731,10 @@ public abstract class DBNDatabaseNode extends DBNNode implements DBSWrapper, DBP
             }
             pathName.insert(0, node.getNodeName().replace('/', '_'));
         }
-        pathName.insert(0, NodePathType.database.getPrefix());
         return pathName.toString();
     }
 
-    protected void reloadChildren(DBRProgressMonitor monitor, Object source, boolean reflect)
+    private void reloadChildren(DBRProgressMonitor monitor, Object source, boolean reflect)
         throws DBException {
         DBNDatabaseNode[] oldChildren;
         synchronized (this) {
@@ -688,7 +747,7 @@ public abstract class DBNDatabaseNode extends DBNNode implements DBSWrapper, DBP
         List<DBNDatabaseNode> newChildren = new ArrayList<>();
         loadChildren(monitor, getMeta(), oldChildren, newChildren, source, reflect);
         synchronized (this) {
-            childNodes = newChildren.toArray(new DBNDatabaseNode[newChildren.size()]);
+            childNodes = newChildren.toArray(new DBNDatabaseNode[0]);
         }
     }
 
@@ -726,6 +785,18 @@ public abstract class DBNDatabaseNode extends DBNNode implements DBSWrapper, DBP
         return null;
     }
 
+    public DBXTreeFolder getFolderMeta(Class<?> childType) {
+        List<DBXTreeNode> metaChildren = getMeta().getChildren(this);
+        if (metaChildren != null) {
+            for (DBXTreeNode cn : metaChildren) {
+                if (cn instanceof DBXTreeFolder && childType.getName().equals(((DBXTreeFolder) cn).getType())) {
+                    return (DBXTreeFolder) cn;
+                }
+            }
+        }
+        return null;
+    }
+
     protected abstract void reloadObject(DBRProgressMonitor monitor, DBSObject object);
 
     public List<Class<?>> getChildrenTypes(DBXTreeNode useMeta) {
@@ -747,12 +818,15 @@ public abstract class DBNDatabaseNode extends DBNNode implements DBSWrapper, DBP
     }
 
     public Class<?> getChildrenClass(DBXTreeItem childMeta) {
+        if (childMeta == null) {
+            log.debug("Null child meta specified");
+            return null;
+        }
         Object valueObject = getValueObject();
         if (valueObject == null) {
             return null;
         }
-        String propertyName = childMeta.getPropertyName();
-        Method getter = findPropertyReadMethod(valueObject.getClass(), propertyName);
+        Method getter = childMeta.getPropertyReadMethod(valueObject.getClass());
         if (getter == null) {
             return null;
         }
@@ -760,7 +834,7 @@ public abstract class DBNDatabaseNode extends DBNNode implements DBSWrapper, DBP
         return BeanUtils.getCollectionType(propType);
     }
 
-    protected Class<?> getChildrenOrFolderClass(DBXTreeItem childMeta) {
+    private Class<?> getChildrenOrFolderClass(DBXTreeItem childMeta) {
         Class<?> childrenClass = this.getChildrenClass(childMeta);
         if (childrenClass == null && this instanceof DBNContainer) {
             childrenClass = ((DBNContainer) this).getChildrenClass();
@@ -768,25 +842,18 @@ public abstract class DBNDatabaseNode extends DBNNode implements DBSWrapper, DBP
         return childrenClass;
     }
 
-    public IProject getOwnerProject() {
-        for (DBNNode node = getParentNode(); node != null; node = node.getParentNode()) {
-            if (node instanceof DBNProject) {
-                return ((DBNProject) node).getProject();
-            }
-        }
-        return null;
-    }
     ////////////////////////////////////////////////////////////////////////////////////
     // Reflection utils
 
-    private static Object extractPropertyValue(DBRProgressMonitor monitor, Object object, String propertyName)
+    private static Object extractPropertyValue(DBRProgressMonitor monitor, Object object, DBXTreeItem meta)
         throws DBException {
         // Read property using reflection
-        if (object == null) {
+        if (object == null || meta == null) {
             return null;
         }
+        String propertyName = meta.getPropertyName();
         try {
-            Method getter = findPropertyReadMethod(object.getClass(), propertyName);
+            Method getter = meta.getPropertyReadMethod(object.getClass());
             if (getter == null) {
                 log.warn("Can't find property '" + propertyName + "' read method in '" + object.getClass().getName() + "'");
                 return null;
@@ -809,51 +876,35 @@ public abstract class DBNDatabaseNode extends DBNNode implements DBSWrapper, DBP
             if (ex.getTargetException() instanceof DBException) {
                 throw (DBException) ex.getTargetException();
             }
-            throw new DBException("Can't read " + propertyName, ex.getTargetException());
+            throw new DBException("Can't read " + propertyName + ": " + ex.getTargetException().getMessage(), ex.getTargetException());
         }
     }
 
-    public static Method findPropertyReadMethod(Class<?> clazz, String propertyName) {
-        String methodName = BeanUtils.propertyNameToMethodName(propertyName);
-        return findPropertyGetter(clazz, "get" + methodName, "is" + methodName);
-    }
-
-    private static Method findPropertyGetter(Class<?> clazz, String getName, String isName) {
-        Method[] methods = clazz.getDeclaredMethods();
-
-        for (Method method : methods) {
-            if ((!Modifier.isPublic(method.getModifiers())) ||
-                (!Modifier.isPublic(method.getDeclaringClass().getModifiers())) ||
-                (method.getReturnType().equals(void.class)))
-            {
-                // skip
-            } else if (method.getName().equals(getName) || (method.getName().equals(isName) && method.getReturnType().equals(boolean.class))) {
-                // If it matches the get name, it's the right method
-                Class<?>[] parameterTypes = method.getParameterTypes();
-                if (parameterTypes.length == 0 || (parameterTypes.length == 1 && parameterTypes[0] == DBRProgressMonitor.class)) {
-                    return method;
-                }
+    public boolean isVirtual() {
+        for (DBNNode node = this; node != null; node = node.getParentNode()) {
+            if (node instanceof DBNDatabaseNode && ((DBNDatabaseNode) node).getMeta().isVirtual()) {
+                return true;
             }
         }
-        return clazz == Object.class ? null : findPropertyGetter(clazz.getSuperclass(), getName, isName);
+        return false;
     }
 
     private static class PropertyValueReader implements DBRRunnableParametrized<DBRProgressMonitor> {
         private final DBRProgressMonitor monitor;
-        private final String propertyName;
+        private final DBXTreeItem meta;
         private final Object valueObject;
         private Object propertyValue;
 
-        PropertyValueReader(DBRProgressMonitor monitor, String propertyName, Object valueObject) {
+        PropertyValueReader(DBRProgressMonitor monitor, DBXTreeItem meta, Object valueObject) {
             this.monitor = monitor;
-            this.propertyName = propertyName;
+            this.meta = meta;
             this.valueObject = valueObject;
         }
 
         @Override
         public void run(DBRProgressMonitor param) throws InvocationTargetException, InterruptedException {
             try {
-                propertyValue = extractPropertyValue(monitor, valueObject, propertyName);
+                propertyValue = extractPropertyValue(monitor, valueObject, meta);
             } catch (DBException e) {
                 throw new InvocationTargetException(e);
             }

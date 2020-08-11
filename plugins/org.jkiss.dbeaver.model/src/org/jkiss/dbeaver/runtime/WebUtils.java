@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,7 +19,7 @@ package org.jkiss.dbeaver.runtime;
 import org.jkiss.code.NotNull;
 import org.jkiss.dbeaver.Log;
 import org.jkiss.dbeaver.ModelPreferences;
-import org.jkiss.dbeaver.model.access.DBAAuthInfo;
+import org.jkiss.dbeaver.model.connection.DBPAuthInfo;
 import org.jkiss.dbeaver.model.preferences.DBPPreferenceStore;
 import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
 import org.jkiss.dbeaver.utils.GeneralUtils;
@@ -43,7 +43,7 @@ public class WebUtils {
     }
 
     @NotNull
-    public static URLConnection openConnection(String urlString, DBAAuthInfo authInfo, String referrer) throws IOException {
+    public static URLConnection openConnection(String urlString, DBPAuthInfo authInfo, String referrer) throws IOException {
         return openURLConnection(urlString, authInfo, referrer, 1);
     }
 
@@ -56,7 +56,7 @@ public class WebUtils {
      * @return  URL connection
      */
     @NotNull
-    private static URLConnection openURLConnection(String urlString, DBAAuthInfo authInfo, String referrer, int retryNumber) throws IOException {
+    private static URLConnection openURLConnection(String urlString, DBPAuthInfo authInfo, String referrer, int retryNumber) throws IOException {
         if (retryNumber > MAX_RETRY_COUNT) {
             throw new IOException("Too many redirects (" + retryNumber + ")");
         } else if (retryNumber > 1) {
@@ -115,7 +115,7 @@ public class WebUtils {
         return connection;
     }
 
-    public static void downloadRemoteFile(@NotNull DBRProgressMonitor monitor, String taskName, String externalURL, File localFile, DBAAuthInfo authInfo) throws IOException, InterruptedException {
+    public static void downloadRemoteFile(@NotNull DBRProgressMonitor monitor, String taskName, String externalURL, File localFile, DBPAuthInfo authInfo) throws IOException, InterruptedException {
         final URLConnection connection = openConnection(externalURL, authInfo, null);
 
         int contentLength = connection.getContentLength();

@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,13 +26,19 @@ import org.eclipse.jface.preference.IPreferenceStore;
 import org.eclipse.swt.graphics.Color;
 import org.eclipse.swt.graphics.Font;
 import org.jkiss.code.NotNull;
+import org.jkiss.dbeaver.DBException;
+import org.jkiss.dbeaver.Log;
 import org.jkiss.dbeaver.ext.erd.ERDActivator;
 import org.jkiss.dbeaver.ext.erd.editor.ERDAttributeVisibility;
 import org.jkiss.dbeaver.ext.erd.editor.ERDViewStyle;
 import org.jkiss.dbeaver.ext.erd.part.NodePart;
+import org.jkiss.dbeaver.model.DBPDataSourceContainer;
+import org.jkiss.dbeaver.model.DBUtils;
 import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
 import org.jkiss.dbeaver.model.struct.DBSEntity;
 import org.jkiss.dbeaver.model.struct.DBSObject;
+import org.jkiss.dbeaver.model.struct.rdb.DBSSchema;
+import org.jkiss.dbeaver.model.virtual.DBVUtils;
 import org.jkiss.utils.ArrayUtils;
 
 import java.util.*;
@@ -45,6 +51,8 @@ import java.util.*;
  * @author Serge Rider
  */
 public class EntityDiagram extends ERDObject<DBSObject> implements ERDContainer {
+    private static final Log log = Log.getLog(EntityDiagram.class);
+
     public static class NodeVisualInfo {
         public Rectangle initBounds;
         public boolean transparent;
@@ -71,9 +79,20 @@ public class EntityDiagram extends ERDObject<DBSObject> implements ERDContainer 
         }
     }
 
+    private static class DataSourceInfo {
+        int index;
+        List<ERDEntity> entities = new ArrayList<>();
+
+        public DataSourceInfo(int index) {
+            this.index = index;
+        }
+    }
+
     private ERDDecorator decorator;
     private String name;
     private final List<ERDEntity> entities = new ArrayList<>();
+    private final Map<DBPDataSourceContainer, DataSourceInfo> dataSourceMap = new LinkedHashMap<>();
+    private final Map<DBPDataSourceContainer, Map<DBSSchema, Integer>> dataSourceSchemeMap = new LinkedHashMap<>();
     private boolean layoutManualDesired = true;
     private boolean layoutManualAllowed = false;
     private boolean needsAutoLayout;
@@ -137,14 +156,34 @@ public class EntityDiagram extends ERDObject<DBSObject> implements ERDContainer 
     }
 
     public void addEntity(ERDEntity entity, int i, boolean reflect) {
+        DBSEntity object = entity.getObject();
+        if (object == null) {
+            log.debug("Null object passed");
+            return;
+        } else if (object.getDataSource() == null) {
+            log.debug("Object " + object.getName() + " is not connected with datasource");
+            return;
+        }
         synchronized (entities) {
             if (i < 0) {
                 entities.add(entity);
             } else {
                 entities.add(i, entity);
             }
-            entityMap.put(entity.getObject(), entity);
-        }
+            entityMap.put(object, entity);
+
+            DBPDataSourceContainer dataSource = object.getDataSource().getContainer();
+            DataSourceInfo dsInfo = dataSourceMap.computeIfAbsent(dataSource, dsc -> new DataSourceInfo(dataSourceMap.size()));
+            dsInfo.entities.add(entity);
+
+            DBSSchema scheme = DBUtils.getParentOfType(DBSSchema.class, entity.getObject());
+            if (scheme != null) {
+                dataSourceSchemeMap.putIfAbsent(dataSource, new LinkedHashMap<>());
+                Map<DBSSchema, Integer> schemeMap = dataSourceSchemeMap.get(dataSource);
+                schemeMap.putIfAbsent(scheme, schemeMap.size());
+                }
+            }
+
 
         if (reflect) {
             firePropertyChange(CHILD, null, entity);
@@ -182,6 +221,14 @@ public class EntityDiagram extends ERDObject<DBSObject> implements ERDContainer 
         synchronized (entities) {
             entityMap.remove(entity.getObject());
             entities.remove(entity);
+
+            DBPDataSourceContainer dataSource = entity.getObject().getDataSource().getContainer();
+            DataSourceInfo dsInfo = dataSourceMap.get(dataSource);
+            dsInfo.entities.remove(entity);
+            if (dsInfo.entities.isEmpty()) {
+                dataSourceMap.remove(dataSource);
+            }
+
         }
         if (reflect) {
             firePropertyChange(CHILD, entity, null);
@@ -276,13 +323,21 @@ public class EntityDiagram extends ERDObject<DBSObject> implements ERDContainer 
         return copy;
     }
 
-    public void fillEntities(DBRProgressMonitor monitor, Collection<DBSEntity> entities, DBSObject dbObject) {
+    public void fillEntities(DBRProgressMonitor monitor, Collection<DBSEntity> entities, DBSObject dbObject) throws DBException {
         // Load entities
         monitor.beginTask("Load entities metadata", entities.size());
         List<ERDEntity> entityCache = new ArrayList<>();
         for (DBSEntity table : entities) {
             if (monitor.isCanceled()) {
                 break;
+            }
+            try {
+                table = DBVUtils.getRealEntity(monitor, table);
+            } catch (DBException e) {
+                log.error("Error resolving real entity for " + table.getName());
+            }
+            if (entityMap.containsKey(table)) {
+                continue;
             }
             monitor.subTask("Load " + table.getName());
             ERDEntity erdEntity = ERDUtils.makeEntityFromObject(monitor, this, entityCache, table, null);
@@ -299,15 +354,12 @@ public class EntityDiagram extends ERDObject<DBSObject> implements ERDContainer 
 
         // Load relations
         monitor.beginTask("Load entities' relations", entities.size());
-        for (DBSEntity table : entities) {
+        for (ERDEntity erdEntity : entityCache) {
             if (monitor.isCanceled()) {
                 break;
             }
-            monitor.subTask("Load " + table.getName());
-            final ERDEntity erdEntity = entityMap.get(table);
-            if (erdEntity != null) {
-                erdEntity.addModelRelations(monitor, this, true, false);
-            }
+            monitor.subTask("Load " + erdEntity.getName());
+            erdEntity.addModelRelations(monitor, this, true, false);
             monitor.worked(1);
         }
         monitor.done();
@@ -338,6 +390,30 @@ public class EntityDiagram extends ERDObject<DBSObject> implements ERDContainer 
             }
         }
         return result;
+    }
+
+    public List<DBPDataSourceContainer> getDataSources() {
+        return new ArrayList<>(dataSourceMap.keySet());
+    }
+
+    public List<ERDEntity> getEntities(DBPDataSourceContainer dataSourceContainer) {
+        DataSourceInfo dsInfo = dataSourceMap.get(dataSourceContainer);
+        return dsInfo == null ? Collections.emptyList() : dsInfo.entities;
+    }
+
+    public int getDataSourceIndex(DBPDataSourceContainer dataSource) {
+        DataSourceInfo dsInfo = dataSourceMap.get(dataSource);
+        return dsInfo == null ? 0 : dsInfo.index;
+    }
+
+    public int getSchemeIndex(DBPDataSourceContainer dataSource, DBSSchema scheme) {
+        Map<DBSSchema, Integer> schemeMap = dataSourceSchemeMap.get(dataSource);
+        Integer index;
+        if (schemeMap != null) {
+            index = schemeMap.get(scheme);
+            return index == null ? 0 : index;
+        }
+        return 0;
     }
 
     public void clear() {

@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,7 +16,6 @@
  */
 package org.jkiss.dbeaver.ui.navigator.actions;
 
-import org.eclipse.core.resources.IProject;
 import org.eclipse.jface.action.ContributionItem;
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.events.SelectionAdapter;
@@ -24,6 +23,7 @@ import org.eclipse.swt.events.SelectionEvent;
 import org.eclipse.swt.widgets.Menu;
 import org.eclipse.swt.widgets.MenuItem;
 import org.jkiss.dbeaver.Log;
+import org.jkiss.dbeaver.model.app.DBPProject;
 import org.jkiss.dbeaver.runtime.DBWorkbench;
 
 public class NavigatorActiveProjectContributor extends ContributionItem
@@ -38,8 +38,8 @@ public class NavigatorActiveProjectContributor extends ContributionItem
     
     private void createMenu(final Menu menu)
     {
-        final IProject activeProject = DBWorkbench.getPlatform().getProjectManager().getActiveProject();
-        for (final IProject project : DBWorkbench.getPlatform().getLiveProjects()) {
+        final DBPProject activeProject = DBWorkbench.getPlatform().getWorkspace().getActiveProject();
+        for (final DBPProject project : DBWorkbench.getPlatform().getWorkspace().getProjects()) {
             MenuItem txnItem = new MenuItem(menu, SWT.RADIO);
             txnItem.setText(project.getName());
             txnItem.setSelection(project == activeProject);

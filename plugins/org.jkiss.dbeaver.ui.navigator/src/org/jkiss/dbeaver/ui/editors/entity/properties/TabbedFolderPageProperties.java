@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -165,7 +165,7 @@ public class TabbedFolderPageProperties extends TabbedFolderPage implements IRef
 
     public List<String> getExtraCategories() {
         List<String> extraCategories = new ArrayList<>();
-        for (DBPPropertyDescriptor prop : input.getPropertySource().getPropertyDescriptors2()) {
+        for (DBPPropertyDescriptor prop : input.getPropertySource().getProperties()) {
             String category = prop.getCategory();
             if (!CommonUtils.isEmpty(category)) {
                 if (!extraCategories.contains(category)) {
@@ -265,7 +265,7 @@ public class TabbedFolderPageProperties extends TabbedFolderPage implements IRef
         @Override
         public boolean performSearch(String searchString, int options) {
             propertyTree.setFilters(new PropertyTreeViewer.NodeFilter(searchString));
-            propertyTree.expandAll();
+            UIUtils.expandAll(propertyTree);
             return propertyTree.getTree().getItemCount() > 0;
         }
 

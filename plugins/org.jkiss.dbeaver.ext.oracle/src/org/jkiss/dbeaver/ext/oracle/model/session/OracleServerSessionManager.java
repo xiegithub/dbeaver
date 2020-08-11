@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,11 +17,11 @@
 package org.jkiss.dbeaver.ext.oracle.model.session;
 
 import org.jkiss.dbeaver.DBException;
+import org.jkiss.dbeaver.ext.oracle.model.OracleDataSource;
 import org.jkiss.dbeaver.model.DBIcon;
 import org.jkiss.dbeaver.model.DBPDataSource;
 import org.jkiss.dbeaver.model.DBPObject;
 import org.jkiss.dbeaver.model.admin.sessions.*;
-import org.jkiss.dbeaver.model.exec.DBCExecutionContext;
 import org.jkiss.dbeaver.model.exec.DBCSession;
 import org.jkiss.dbeaver.model.exec.jdbc.JDBCPreparedStatement;
 import org.jkiss.dbeaver.model.exec.jdbc.JDBCResultSet;
@@ -45,17 +45,17 @@ public class OracleServerSessionManager implements DBAServerSessionManager<Oracl
     public static final String OPTION_SHOW_BACKGROUND = "showBackground";
     public static final String OPTION_SHOW_INACTIVE = "showInactive";
 
-    private final DBCExecutionContext executionContext;
+    private final OracleDataSource dataSource;
 
-    public OracleServerSessionManager(DBCExecutionContext executionContext)
+    public OracleServerSessionManager(OracleDataSource dataSource)
     {
-        this.executionContext = executionContext;
+        this.dataSource = dataSource;
     }
 
     @Override
     public DBPDataSource getDataSource()
     {
-        return executionContext.getDataSource();
+        return dataSource;
     }
 
     @Override
@@ -104,7 +104,12 @@ public class OracleServerSessionManager implements DBAServerSessionManager<Oracl
             } else {
                 sql.append("DISCONNECT SESSION ");
             }
-            sql.append("'").append(sessionType.getSid()).append(',').append(sessionType.getSerial()).append("'");
+            sql.append("'").append(sessionType.getSid()).append(',').append(sessionType.getSerial());
+            if (sessionType.getInstId() != 0 && sessionType.getInstId() != 1) {
+                // INSET_ID = 1 is hardcoded constant, means no RAC
+                sql.append(",@").append(sessionType.getInstId());
+            }
+            sql.append("'");
             if (immediate) {
                 sql.append(" IMMEDIATE");
             } else if (!toKill) {
@@ -150,6 +155,34 @@ public class OracleServerSessionManager implements DBAServerSessionManager<Oracl
                 return OracleServerLongOp.class;
             }
         });
+        extDetails.add(new AbstractServerSessionDetails("Display Exec Plan", "Displays execute plan from dbms_xplan by SqlId and ChildNumber", DBIcon.TYPE_TEXT) {
+            @Override
+            public List<OracleServerExecutePlan> getSessionDetails(DBCSession session, DBAServerSession serverSession) throws DBException {
+                try {
+                    try (JDBCPreparedStatement dbStat = ((JDBCSession) session).prepareStatement(
+                        "SELECT PLAN_TABLE_OUTPUT FROM TABLE(dbms_xplan.display_cursor(sql_id => ?, cursor_child_no => ?))"))
+                    {
+                        dbStat.setString(1, ((OracleServerSession) serverSession).getSqlId());
+                        dbStat.setLong(2, ((OracleServerSession) serverSession).getSqlChildNumber());
+                        try (JDBCResultSet dbResult = dbStat.executeQuery()) 
+                        {
+							List<OracleServerExecutePlan> planItems = new ArrayList<>();
+							while (dbResult.next()) {
+                                planItems.add(new OracleServerExecutePlan(dbResult));
+                            }
+							return planItems;
+						}
+                    }							
+                } catch (SQLException e) {
+                    throw new DBException(e, session.getDataSource());
+                }
+            }
+
+            @Override
+            public Class<? extends DBPObject> getDetailsType() {
+                return OracleServerExecutePlan.class;
+            }
+        });      
         return extDetails;
     }
 }

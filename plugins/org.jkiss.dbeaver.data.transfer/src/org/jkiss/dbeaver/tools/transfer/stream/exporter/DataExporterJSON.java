@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  * Copyright (C) 2012 Eugene Fradkin (eugene.fradkin@gmail.com)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -29,9 +29,9 @@ import org.jkiss.dbeaver.model.data.json.JSONUtils;
 import org.jkiss.dbeaver.model.exec.DBCResultSet;
 import org.jkiss.dbeaver.model.exec.DBCSession;
 import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
+import org.jkiss.dbeaver.tools.transfer.stream.IDocumentDataExporter;
 import org.jkiss.dbeaver.tools.transfer.stream.IStreamDataExporterSite;
 import org.jkiss.dbeaver.utils.ContentUtils;
-import org.jkiss.dbeaver.utils.GeneralUtils;
 import org.jkiss.dbeaver.utils.MimeTypes;
 import org.jkiss.utils.CommonUtils;
 
@@ -39,18 +39,18 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.Reader;
+import java.nio.charset.StandardCharsets;
 import java.util.Date;
-import java.util.List;
 
 /**
  * JSON Exporter
  */
-public class DataExporterJSON extends StreamExporterAbstract {
+public class DataExporterJSON extends StreamExporterAbstract implements IDocumentDataExporter {
 
     public static final String PROP_FORMAT_DATE_ISO = "formatDateISO";
     public static final String PROP_PRINT_TABLE_NAME = "printTableName";
 
-    private List<DBDAttributeBinding> columns;
+    private DBDAttributeBinding[] columns;
     private String tableName;
     private int rowNum = 0;
 
@@ -100,19 +100,19 @@ public class DataExporterJSON extends StreamExporterAbstract {
         if (isJsonDocumentResults(session.getProgressMonitor(), row)) {
             DBDDocument document = (DBDDocument) row[0];
             ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-            document.serializeDocument(session.getProgressMonitor(), buffer, GeneralUtils.DEFAULT_ENCODING);
-            String jsonText = buffer.toString(GeneralUtils.DEFAULT_ENCODING);
+            document.serializeDocument(session.getProgressMonitor(), buffer, StandardCharsets.UTF_8);
+            String jsonText = buffer.toString(StandardCharsets.UTF_8.name());
             out.write(jsonText);
         } else {
             out.write("\t{\n");
-            for (int i = 0; i < row.length; i++) {
-                DBDAttributeBinding column = columns.get(i);
+            for (int i = 0; i < columns.length; i++) {
+                DBDAttributeBinding column = columns[i];
                 String columnName = column.getLabel();
                 if (CommonUtils.isEmpty(columnName)) {
                     columnName = column.getName();
                 }
                 out.write("\t\t\"" + JSONUtils.escapeJsonString(columnName) + "\" : ");
-                Object cellValue = row[i];
+                Object cellValue = row[column.getOrdinalPosition()];
                 if (DBUtils.isNullValue(cellValue)) {
                     writeTextCell(null);
                 } else if (cellValue instanceof DBDContent) {
@@ -144,7 +144,7 @@ public class DataExporterJSON extends StreamExporterAbstract {
                         writeTextCell(super.getValueDisplayString(column, cellValue));
                     }
                 }
-                if (i < row.length - 1) {
+                if (i < columns.length - 1) {
                     out.write(",");
                 }
                 out.write("\n");
@@ -154,7 +154,7 @@ public class DataExporterJSON extends StreamExporterAbstract {
     }
 
     private boolean isJsonDocumentResults(DBRProgressMonitor progressMonitor, Object[] row) {
-        if (columns.size() == 1 && columns.get(0).getDataKind() == DBPDataKind.DOCUMENT) {
+        if (columns.length == 1 && columns[0].getDataKind() == DBPDataKind.DOCUMENT) {
             if (row.length > 0 && !DBUtils.isNullValue(row[0]) && row[0] instanceof DBDDocument) {
                 DBDDocument document = (DBDDocument) row[0];
                 if (MimeTypes.TEXT_JSON.equalsIgnoreCase(document.getDocumentContentType())) {

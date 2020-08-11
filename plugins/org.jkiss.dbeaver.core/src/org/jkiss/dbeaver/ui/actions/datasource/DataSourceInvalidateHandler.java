@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -49,7 +49,7 @@ public class DataSourceInvalidateHandler extends AbstractDataSourceHandler
     @Override
     public Object execute(ExecutionEvent event) throws ExecutionException
     {
-        DBCExecutionContext context = getExecutionContext(event, false);
+        DBCExecutionContext context = getActiveExecutionContext(event, false);
         if (context != null) {
             invalidateDataSource(context.getDataSource());
         } else {
@@ -59,6 +59,7 @@ public class DataSourceInvalidateHandler extends AbstractDataSourceHandler
                 // It should trigger connection instantiation if for some reason it was lost (SQLEditor specific?)
                 DBPDataSourceContainer dsContainer = ((IDataSourceContainerProviderEx) editor).getDataSourceContainer();
                 if (dsContainer != null) {
+                    ((IDataSourceContainerProviderEx) editor).setDataSourceContainer(null);
                     ((IDataSourceContainerProviderEx) editor).setDataSourceContainer(dsContainer);
                 }
             }
@@ -112,14 +113,11 @@ public class DataSourceInvalidateHandler extends AbstractDataSourceHandler
 //                            error);
                         final DBPDataSourceContainer container = dataSource.getContainer();
                         final Throwable dialogError = error;
-                        final Integer result = new UITask<Integer>() {
-                            @Override
-                            protected Integer runTask() {
+                        final Integer result = UITask.run(() -> {
                                 ConnectionLostDialog clDialog = new ConnectionLostDialog(null, container, dialogError, "Disconnect");
                                 return clDialog.open();
-                            }
-                        }.execute();
-                        if (result == IDialogConstants.STOP_ID) {
+                        });
+                        if (result == null || result == IDialogConstants.STOP_ID) {
                             // Disconnect - to notify UI and reflect model changes
                             new DisconnectJob(container).schedule();
                         } else if (result == IDialogConstants.RETRY_ID) {

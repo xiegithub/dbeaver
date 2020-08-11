@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -32,6 +32,7 @@ import org.jkiss.dbeaver.ui.UIUtils;
 import org.jkiss.dbeaver.ui.navigator.NavigatorUtils;
 import org.jkiss.utils.CommonUtils;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
@@ -144,5 +145,16 @@ public class ERDUtils
             }
         }
         return null;
+    }
+
+    public static <T> List<T> getObjectsFromERD(List<? extends ERDObject<T>> erdObjects) {
+        List<T> result = null;
+        if (erdObjects != null) {
+            result = new ArrayList<>();
+            for (ERDObject<T> erdObject : erdObjects) {
+                result.add(erdObject.getObject());
+            }
+        }
+        return result;
     }
 }

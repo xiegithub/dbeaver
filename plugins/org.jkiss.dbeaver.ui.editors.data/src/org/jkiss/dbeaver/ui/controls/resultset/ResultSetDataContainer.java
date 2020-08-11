@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,13 +17,13 @@
 package org.jkiss.dbeaver.ui.controls.resultset;
 
 import org.eclipse.core.runtime.IAdaptable;
+import org.jkiss.code.NotNull;
+import org.jkiss.code.Nullable;
 import org.jkiss.dbeaver.Log;
+import org.jkiss.dbeaver.model.DBPContextProvider;
 import org.jkiss.dbeaver.model.DBPDataSource;
 import org.jkiss.dbeaver.model.DBUtils;
-import org.jkiss.dbeaver.model.data.DBDAttributeBinding;
-import org.jkiss.dbeaver.model.data.DBDDataFilter;
-import org.jkiss.dbeaver.model.data.DBDDataReceiver;
-import org.jkiss.dbeaver.model.data.DBDValueMeta;
+import org.jkiss.dbeaver.model.data.*;
 import org.jkiss.dbeaver.model.exec.*;
 import org.jkiss.dbeaver.model.impl.local.LocalResultSetMeta;
 import org.jkiss.dbeaver.model.struct.DBSDataContainer;
@@ -37,17 +37,20 @@ import java.util.List;
  * Client-side data container.
  * Wraps RSV model and original data container.
  */
-public class ResultSetDataContainer implements DBSDataContainer, IAdaptable {
+public class ResultSetDataContainer implements DBSDataContainer, DBPContextProvider, IAdaptable, DBDAttributeFilter {
 
     private static final Log log = Log.getLog(ResultSetDataContainer.class);
 
+    private final IResultSetController controller;
     private final DBSDataContainer dataContainer;
     private final ResultSetModel model;
     private ResultSetDataContainerOptions options;
+    private boolean filterAttributes;
 
-    public ResultSetDataContainer(DBSDataContainer dataContainer, ResultSetModel model, ResultSetDataContainerOptions options) {
-        this.dataContainer = dataContainer;
-        this.model = model;
+    public ResultSetDataContainer(IResultSetController controller, ResultSetDataContainerOptions options) {
+        this.controller = controller;
+        this.dataContainer = controller.getDataContainer();
+        this.model = controller.getModel();
         this.options = options;
     }
 
@@ -77,7 +80,8 @@ public class ResultSetDataContainer implements DBSDataContainer, IAdaptable {
 
     @Override
     public DBCStatistics readData(DBCExecutionSource source, DBCSession session, DBDDataReceiver dataReceiver, DBDDataFilter dataFilter, long firstRow, long maxRows, long flags, int fetchSize) throws DBCException {
-        if (proceedSelectedRowsOnly(flags) || proceedSelectedColumnsOnly(flags)) {
+        filterAttributes = proceedSelectedColumnsOnly(flags);
+        if (filterAttributes || proceedSelectedRowsOnly(flags)) {
 
             long startTime = System.currentTimeMillis();
             DBCStatistics statistics = new DBCStatistics();
@@ -148,6 +152,33 @@ public class ResultSetDataContainer implements DBSDataContainer, IAdaptable {
         return null;
     }
 
+    @Nullable
+    @Override
+    public DBCExecutionContext getExecutionContext() {
+        return controller.getExecutionContext();
+    }
+
+    @Override
+    public DBDAttributeBinding[] filterAttributeBindings(DBDAttributeBinding[] attributes) {
+        DBDDataFilter dataFilter = model.getDataFilter();
+        List<DBDAttributeBinding> filtered = new ArrayList<>();
+        for (DBDAttributeBinding attr : attributes) {
+            DBDAttributeConstraint ac = dataFilter.getConstraint(attr);
+            if (ac != null && !ac.isVisible()) {
+                continue;
+            }
+            if (!filterAttributes || options.getSelectedColumns().contains(attr.getName())) {
+                filtered.add(attr);
+            }
+        }
+        filtered.sort((o1, o2) -> {
+            DBDAttributeConstraint c1 = dataFilter.getConstraint(o1, true);
+            DBDAttributeConstraint c2 = dataFilter.getConstraint(o2, true);
+            return c1 == null || c2 == null ? 0 : c1.getVisualPosition() - c2.getVisualPosition();
+        });
+        return filtered.toArray(new DBDAttributeBinding[0]);
+    }
+
     private class ModelResultSet implements DBCResultSet {
 
         private final DBCSession session;
@@ -201,10 +232,10 @@ public class ResultSetDataContainer implements DBSDataContainer, IAdaptable {
                 }
                 curRow = model.getRow(0);
             } else {
-                if (curRow.getRowNumber() >= model.getRowCount() - 1) {
+                if (curRow.getVisualNumber() >= model.getRowCount() - 1) {
                     return false;
                 }
-                curRow = model.getRow(curRow.getRowNumber() + 1);
+                curRow = model.getRow(curRow.getVisualNumber() + 1);
             }
             return true;
         }
@@ -218,18 +249,18 @@ public class ResultSetDataContainer implements DBSDataContainer, IAdaptable {
             return true;
         }
 
+        @NotNull
         @Override
         public DBCResultSetMetaData getMeta() throws DBCException {
             List<DBDAttributeBinding> attributes = model.getVisibleAttributes();
             List<DBCAttributeMetaData> meta = new ArrayList<>(attributes.size());
-            boolean selectedColumnsOnly = proceedSelectedColumnsOnly(flags);
             for (DBDAttributeBinding attribute : attributes) {
                 DBCAttributeMetaData metaAttribute = attribute.getMetaAttribute();
-                if (!selectedColumnsOnly || options.getSelectedColumns().contains(metaAttribute.getName())) {
+                if (metaAttribute != null) {
                     meta.add(metaAttribute);
                 }
             }
-            return new LocalResultSetMeta(meta);
+            return new CustomResultSetMeta(meta);
         }
 
         @Override
@@ -249,6 +280,13 @@ public class ResultSetDataContainer implements DBSDataContainer, IAdaptable {
         public void close() {
             // do nothing
         }
+
+        private class CustomResultSetMeta extends LocalResultSetMeta {
+            public CustomResultSetMeta(List<DBCAttributeMetaData> meta) {
+                super(meta);
+            }
+        }
+
     }
 
 }

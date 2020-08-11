@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,19 +16,20 @@
  */
 package org.jkiss.dbeaver.model.navigator.meta;
 
-import org.apache.commons.jexl2.Expression;
-import org.apache.commons.jexl2.JexlContext;
-import org.apache.commons.jexl2.JexlException;
+import org.apache.commons.jexl3.JexlContext;
+import org.apache.commons.jexl3.JexlException;
+import org.apache.commons.jexl3.JexlExpression;
 import org.eclipse.core.runtime.IConfigurationElement;
-import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
 import org.jkiss.dbeaver.DBException;
 import org.jkiss.dbeaver.Log;
+import org.jkiss.dbeaver.model.DBIcon;
 import org.jkiss.dbeaver.model.DBPDataSource;
 import org.jkiss.dbeaver.model.DBPImage;
 import org.jkiss.dbeaver.model.impl.AbstractDescriptor;
 import org.jkiss.dbeaver.model.navigator.DBNDatabaseNode;
 import org.jkiss.dbeaver.model.navigator.DBNNode;
+import org.jkiss.dbeaver.utils.GeneralUtils;
 import org.jkiss.utils.CommonUtils;
 
 import java.util.ArrayList;
@@ -54,7 +55,7 @@ public abstract class DBXTreeNode
     private final boolean virtual;
     private boolean standaloneNode;
     //private final boolean embeddable;
-    private Expression visibleIf;
+    private JexlExpression visibleIf;
     private DBXTreeNode recursiveLink;
     private List<DBXTreeNodeHandler> handlers = null;
 
@@ -142,12 +143,12 @@ public abstract class DBXTreeNode
     /**
      * Human readable node type
      */
-    public abstract String getNodeType(@Nullable DBPDataSource dataSource, @Nullable String locale);
+    public abstract String getNodeTypeLabel(@Nullable DBPDataSource dataSource, @Nullable String locale);
 
     /**
      * Human readable child nodes type
      */
-    public abstract String getChildrenType(@Nullable DBPDataSource dataSource, @Nullable String locale);
+    public abstract String getChildrenTypeLabel(@Nullable DBPDataSource dataSource, @Nullable String locale);
 
     public boolean isNavigable()
     {
@@ -260,8 +261,10 @@ public abstract class DBXTreeNode
         return recursiveLink;
     }
 
-    public DBPImage getDefaultIcon()
-    {
+    public DBPImage getDefaultIcon() {
+        if (defaultIcon == null && this instanceof DBXTreeFolder) {
+            return DBIcon.TREE_FOLDER;
+        }
         return defaultIcon;
     }
 
@@ -299,14 +302,14 @@ public abstract class DBXTreeNode
                     }
                 } catch (JexlException e) {
                     // do nothing
-                    log.debug("Error evaluating expression '" + icon.getExprString() + "'", e);
+                    log.debug("Error evaluating expression '" + icon.getExprString() + "' on node '" + context.getName() + "': " + GeneralUtils.getExpressionParseMessage(e));
                 }
             }
         }
         return getDefaultIcon();
     }
 
-    public Expression getVisibleIf()
+    public JexlExpression getVisibleIf()
     {
         return visibleIf;
     }

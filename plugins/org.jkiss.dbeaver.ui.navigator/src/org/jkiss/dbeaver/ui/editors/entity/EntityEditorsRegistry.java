@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,6 +20,7 @@ package org.jkiss.dbeaver.ui.editors.entity;
 import org.eclipse.core.runtime.IConfigurationElement;
 import org.eclipse.core.runtime.IExtensionRegistry;
 import org.eclipse.core.runtime.Platform;
+import org.eclipse.ui.IEditorPart;
 import org.jkiss.dbeaver.model.DBPObject;
 import org.jkiss.utils.CommonUtils;
 
@@ -87,6 +88,10 @@ public class EntityEditorsRegistry {
         return defaultEditor;
     }
 
+    public List<EntityEditorDescriptor> getEntityEditors() {
+        return entityEditors;
+    }
+
     public List<EntityEditorDescriptor> getEntityEditors(DBPObject object, IEntityEditorContext context, String position) {
         List<EntityEditorDescriptor> editors = new ArrayList<>();
         final List<EntityEditorDescriptor> positionList =
@@ -110,4 +115,12 @@ public class EntityEditorsRegistry {
         return null;
     }
 
+    public EntityEditorDescriptor getEntityEditor(IEditorPart editor) {
+        for (EntityEditorDescriptor ed : entityEditors) {
+            if (ed.getEditorType().getImplName().equals(editor.getClass().getName())) {
+                return ed;
+            }
+        }
+        return null;
+    }
 }

@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,6 +27,7 @@ import org.jkiss.dbeaver.DBException;
 import org.jkiss.dbeaver.core.CoreMessages;
 import org.jkiss.dbeaver.model.DBPDataSourceContainer;
 import org.jkiss.dbeaver.model.app.DBPDataSourceRegistry;
+import org.jkiss.dbeaver.model.app.DBPProject;
 import org.jkiss.dbeaver.model.navigator.*;
 import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
 import org.jkiss.dbeaver.model.runtime.DBRRunnableWithProgress;
@@ -54,9 +55,9 @@ public class BookmarksHandlerImpl extends AbstractResourceHandler {
 
     private static final String BOOKMARK_EXT = "bm"; //$NON-NLS-1$
 
-    public static IFolder getBookmarksFolder(IProject project, boolean forceCreate)
+    public static IFolder getBookmarksFolder(DBPProject project, boolean forceCreate)
     {
-        return DBWorkbench.getPlatform().getProjectManager().getResourceDefaultRoot(project, BookmarksHandlerImpl.class, forceCreate);
+        return DBWorkbench.getPlatform().getWorkspace().getResourceDefaultRoot(project, BookmarksHandlerImpl.class, forceCreate);
     }
 
     @Override
@@ -107,7 +108,7 @@ public class BookmarksHandlerImpl extends AbstractResourceHandler {
             super.openResource(resource);
             return;
         }
-        final DBNProject projectNode = DBWorkbench.getPlatform().getNavigatorModel().getRoot().getProject(resource.getProject());
+        final DBNProject projectNode = DBWorkbench.getPlatform().getNavigatorModel().getRoot().getProjectNode(resource.getProject());
         if (projectNode == null) {
             throw new DBException("Can't find project node for '" + resource.getProject().getName() + "'"); //$NON-NLS-2$
         }
@@ -140,7 +141,7 @@ public class BookmarksHandlerImpl extends AbstractResourceHandler {
     @Override
     public List<DBPDataSourceContainer> getAssociatedDataSources(DBNResource resource) {
         if (resource instanceof DBNBookmark) {
-            DBPDataSourceRegistry dataSourceRegistry = DBWorkbench.getPlatform().getProjectManager().getDataSourceRegistry(resource.getResource().getProject());
+            DBPDataSourceRegistry dataSourceRegistry = resource.getOwnerProject().getDataSourceRegistry();
             if (dataSourceRegistry != null) {
                 DBPDataSourceContainer dataSource = dataSourceRegistry.getDataSource(((DBNBookmark) resource).getStorage().getDataSourceId());
                 if (dataSource != null) {
@@ -184,10 +185,11 @@ public class BookmarksHandlerImpl extends AbstractResourceHandler {
         }
     }
 
+/*
     static DBNDatabaseNode getTargetBookmarkNode(DBRProgressMonitor monitor, DBNBookmark bookmark)
     {
         IFile resource = (IFile) bookmark.getResource();
-        final DBNProject projectNode = DBWorkbench.getPlatform().getNavigatorModel().getRoot().getProject(resource.getProject());
+        final DBNProject projectNode = DBWorkbench.getPlatform().getNavigatorModel().getRoot().getProjectNode(resource.getProject());
         if (projectNode != null) {
             BookmarkStorage storage = bookmark.getStorage();
             final DBPDataSourceContainer dataSourceContainer = projectNode.getDatabases().getDataSourceRegistry().getDataSource(storage.getDataSourceId());
@@ -212,11 +214,12 @@ public class BookmarksHandlerImpl extends AbstractResourceHandler {
         }
         return null;
     }
+*/
 
     public static void createBookmark(final DBNDatabaseNode node, String title, IFolder folder) throws DBException
     {
         if (folder == null) {
-            final IProject project = node.getOwnerProject();
+            final DBPProject project = node.getOwnerProject();
             if (project != null) {
                 folder = getBookmarksFolder(project, true);
             }
@@ -277,7 +280,7 @@ public class BookmarksHandlerImpl extends AbstractResourceHandler {
         }
 
         @Override
-        public void run(DBRProgressMonitor monitor) throws InvocationTargetException, InterruptedException {
+        public void run(DBRProgressMonitor monitor) throws InvocationTargetException {
             try {
                 DBNNode currentNode = dsNode;
                 final Collection<String> dataSourcePath = storage.getDataSourcePath();

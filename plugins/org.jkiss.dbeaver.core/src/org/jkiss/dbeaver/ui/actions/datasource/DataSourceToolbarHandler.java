@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -36,9 +36,9 @@ import org.jkiss.dbeaver.registry.DataSourceProviderRegistry;
 import org.jkiss.dbeaver.runtime.DBWorkbench;
 import org.jkiss.dbeaver.ui.AbstractPartListener;
 import org.jkiss.dbeaver.ui.UIUtils;
+import org.jkiss.dbeaver.ui.actions.AbstractPageListener;
 import org.jkiss.dbeaver.ui.actions.DataSourcePropertyTester;
 import org.jkiss.dbeaver.ui.editors.EditorUtils;
-import org.jkiss.dbeaver.ui.actions.AbstractPageListener;
 import org.jkiss.dbeaver.utils.RuntimeUtils;
 
 import java.util.ArrayList;
@@ -101,7 +101,7 @@ public class DataSourceToolbarHandler implements DBPRegistryListener, DBPEventLi
         // Register as datasource listener in all datasources
         // We need it because at this moment there could be come already loaded registries (on startup)
         DataSourceProviderRegistry.getInstance().addDataSourceRegistryListener(this);
-        for (DBPDataSourceRegistry registry : DBUtils.getAllRegistries()) {
+        for (DBPDataSourceRegistry registry : DBUtils.getAllRegistries(false)) {
             handleRegistryLoad(registry);
         }
         // We'll miss a lot of DBP events because  we'll be activated only after UI will be instantiated
@@ -139,9 +139,7 @@ public class DataSourceToolbarHandler implements DBPRegistryListener, DBPEventLi
         }
         DBPDataSourceContainer currentDataSource = DataSourceToolbarUtils.getCurrentDataSource(workbenchWindow);
 
-        if (event.getAction() == DBPEvent.Action.OBJECT_ADD ||
-            event.getAction() == DBPEvent.Action.OBJECT_REMOVE ||
-            (event.getAction() == DBPEvent.Action.OBJECT_UPDATE && event.getObject() == currentDataSource) ||
+        if ((event.getAction() == DBPEvent.Action.OBJECT_UPDATE && event.getObject() == currentDataSource) ||
             (event.getAction() == DBPEvent.Action.OBJECT_SELECT && Boolean.TRUE.equals(event.getEnabled()) &&
                 DBUtils.getContainer(event.getObject()) == currentDataSource)
             ) {

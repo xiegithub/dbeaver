@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -31,6 +31,7 @@ import org.jkiss.dbeaver.model.exec.DBCAttributeMetaData;
 import org.jkiss.dbeaver.model.exec.DBCExecutionContext;
 import org.jkiss.dbeaver.model.struct.DBSAttributeBase;
 import org.jkiss.dbeaver.model.struct.DBSTypedObject;
+import org.jkiss.dbeaver.runtime.DBWorkbench;
 import org.jkiss.dbeaver.ui.UIUtils;
 import org.jkiss.dbeaver.ui.data.IAttributeController;
 import org.jkiss.dbeaver.ui.data.IDataController;
@@ -82,6 +83,7 @@ public class ResultSetValueController implements IAttributeController, IRowContr
         return controller.getExecutionContext();
     }
 
+    @NotNull
     @Override
     public IDataController getDataController() {
         return controller;
@@ -120,10 +122,16 @@ public class ResultSetValueController implements IAttributeController, IRowContr
     @Override
     public String getColumnId() {
         DBCExecutionContext context = getExecutionContext();
-        DBCAttributeMetaData metaAttribute = binding.getMetaAttribute();
+        DBSAttributeBase metaAttribute = binding.getMetaAttribute();
+        if (metaAttribute == null) {
+            metaAttribute = binding.getAttribute();
+        }
+        if (metaAttribute == null) {
+            return binding.getName();
+        }
         return DBUtils.getSimpleQualifiedName(
             context == null ? null : context.getDataSource().getContainer().getName(),
-            metaAttribute.getEntityName(),
+            metaAttribute instanceof DBCAttributeMetaData ? ((DBCAttributeMetaData) metaAttribute).getEntityName() : "",
             metaAttribute.getName());
     }
 
@@ -136,7 +144,15 @@ public class ResultSetValueController implements IAttributeController, IRowContr
     @Override
     public void updateValue(@Nullable Object value, boolean updatePresentation)
     {
-        boolean updated = controller.getModel().updateCellValue(binding, curRow, value);
+        boolean updated;
+        try {
+            updated = controller.getModel().updateCellValue(binding, curRow, value);
+        } catch (Exception e) {
+            UIUtils.asyncExec(() -> {
+                DBWorkbench.getPlatformUI().showError("Value update", "Error updating value: " + e.getMessage(), e);
+            });
+            return;
+        }
         if (updated && updatePresentation) {
             // Update controls
             UIUtils.syncExec(new Runnable() {
@@ -210,7 +226,7 @@ public class ResultSetValueController implements IAttributeController, IRowContr
     @Override
     public boolean isReadOnly()
     {
-        return controller.isAttributeReadOnly(binding);
+        return controller.getAttributeReadOnlyStatus(binding) != null;
     }
 
     @Override

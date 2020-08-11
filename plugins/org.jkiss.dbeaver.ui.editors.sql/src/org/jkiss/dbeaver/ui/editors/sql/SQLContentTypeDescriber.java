@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,25 +17,10 @@
 package org.jkiss.dbeaver.ui.editors.sql;
 
 import org.eclipse.core.internal.content.TextContentDescriber;
-import org.eclipse.core.runtime.QualifiedName;
-import org.eclipse.core.runtime.content.IContentDescriber;
-import org.eclipse.core.runtime.content.IContentDescription;
-import org.jkiss.dbeaver.ui.editors.EditorUtils;
-
-import java.io.IOException;
-import java.io.InputStream;
 
 /**
  * SQL content type describer
  */
 public class SQLContentTypeDescriber extends TextContentDescriber {
 
-    @Override
-    public QualifiedName[] getSupportedOptions()
-    {
-        return new QualifiedName[] {
-            IContentDescription.BYTE_ORDER_MARK,
-            IContentDescription.CHARSET,
-            EditorUtils.QN_DATA_SOURCE_ID};
-    }
 }

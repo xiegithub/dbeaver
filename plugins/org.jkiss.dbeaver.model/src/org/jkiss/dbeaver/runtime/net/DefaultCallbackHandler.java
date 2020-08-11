@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,7 +16,7 @@
  */
 package org.jkiss.dbeaver.runtime.net;
 
-import org.jkiss.dbeaver.model.access.DBAAuthInfo;
+import org.jkiss.dbeaver.model.connection.DBPAuthInfo;
 import org.jkiss.dbeaver.runtime.DBWorkbench;
 
 import javax.security.auth.callback.Callback;
@@ -37,7 +37,7 @@ public class DefaultCallbackHandler implements CallbackHandler {
         for (Callback callback : callbacks) {
             if (callback instanceof PasswordCallback) {
                 if (password == null) {
-                    final DBAAuthInfo authInfo = DBWorkbench.getPlatformUI().promptUserCredentials("Enter password", null, null, true, true);
+                    final DBPAuthInfo authInfo = DBWorkbench.getPlatformUI().promptUserCredentials("Enter password", null, null, true, true);
                     if (authInfo != null) {
                         if (authInfo.isSavePassword()) {
                             password = authInfo.getUserPassword().toCharArray();

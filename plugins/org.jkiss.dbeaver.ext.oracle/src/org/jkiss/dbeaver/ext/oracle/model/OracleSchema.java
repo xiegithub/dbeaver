@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,9 +20,11 @@ import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
 import org.jkiss.dbeaver.DBException;
 import org.jkiss.dbeaver.Log;
+import org.jkiss.dbeaver.model.DBPObjectStatisticsCollector;
 import org.jkiss.dbeaver.model.DBPRefreshableObject;
 import org.jkiss.dbeaver.model.DBPSystemObject;
 import org.jkiss.dbeaver.model.DBUtils;
+import org.jkiss.dbeaver.model.exec.DBCException;
 import org.jkiss.dbeaver.model.exec.jdbc.JDBCPreparedStatement;
 import org.jkiss.dbeaver.model.exec.jdbc.JDBCResultSet;
 import org.jkiss.dbeaver.model.exec.jdbc.JDBCSession;
@@ -49,12 +51,15 @@ import java.util.*;
 /**
  * OracleSchema
  */
-public class OracleSchema extends OracleGlobalObject implements DBSSchema, DBPRefreshableObject, DBPSystemObject, DBSProcedureContainer
+public class OracleSchema extends OracleGlobalObject implements DBSSchema, DBPRefreshableObject, DBPSystemObject, DBSProcedureContainer, DBPObjectStatisticsCollector
 {
     private static final Log log = Log.getLog(OracleSchema.class);
 
+    // Synonyms read is very expensive. Exclude them from children by default
+    // Children are used in auto-completion which must be fast
+    private static boolean SYNONYMS_AS_CHILDREN = false;
+
     final public TableCache tableCache = new TableCache();
-    final public MViewCache mviewCache = new MViewCache();
     final public ConstraintCache constraintCache = new ConstraintCache();
     final public ForeignKeyCache foreignKeyCache = new ForeignKeyCache();
     final public TriggerCache triggerCache = new TriggerCache();
@@ -70,6 +75,7 @@ public class OracleSchema extends OracleGlobalObject implements DBSSchema, DBPRe
     final public SchedulerJobCache schedulerJobCache = new SchedulerJobCache();
     final public SchedulerProgramCache schedulerProgramCache = new SchedulerProgramCache();
     final public RecycleBin recycleBin = new RecycleBin();
+    private volatile boolean hasStatistics;
 
     private long id;
     private String name;
@@ -183,7 +189,14 @@ public class OracleSchema extends OracleGlobalObject implements DBSSchema, DBPRe
     public Collection<OracleMaterializedView> getMaterializedViews(DBRProgressMonitor monitor)
         throws DBException
     {
-        return mviewCache.getAllObjects(monitor, this);
+        return tableCache.getTypedObjects(monitor, this, OracleMaterializedView.class);
+    }
+
+    @Association
+    public OracleMaterializedView getMaterializedView(DBRProgressMonitor monitor, String name)
+        throws DBException
+    {
+        return tableCache.getObject(monitor, this, name, OracleMaterializedView.class);
     }
 
     @Association
@@ -196,19 +209,25 @@ public class OracleSchema extends OracleGlobalObject implements DBSSchema, DBPRe
     public OracleDataType getDataType(DBRProgressMonitor monitor, String name)
         throws DBException
     {
-        OracleDataType type = dataTypeCache.getObject(monitor, this, name);
+        OracleDataType type = isPublic() ? getTypeBySynonym(monitor, name) : dataTypeCache.getObject(monitor, this, name);
         if (type == null) {
-            final OracleSynonym synonym = synonymCache.getObject(monitor, this, name);
-            if (synonym != null && synonym.getObjectType() == OracleObjectType.TYPE) {
-                Object object = synonym.getObject(monitor);
-                if (object instanceof OracleDataType) {
-                    return (OracleDataType)object;
-                }
+            if (!isPublic()) {
+                return getTypeBySynonym(monitor, name);
             }
-            return null;
-        } else {
-            return type;
         }
+        return type;
+    }
+
+    @Nullable
+    private OracleDataType getTypeBySynonym(DBRProgressMonitor monitor, String name) throws DBException {
+        final OracleSynonym synonym = synonymCache.getObject(monitor, this, name);
+        if (synonym != null && (synonym.getObjectType() == OracleObjectType.TYPE || synonym.getObjectType() == OracleObjectType.TYPE_BODY)) {
+            Object object = synonym.getObject(monitor);
+            if (object instanceof OracleDataType) {
+                return (OracleDataType)object;
+            }
+        }
+        return null;
     }
 
     @Association
@@ -249,6 +268,13 @@ public class OracleSchema extends OracleGlobalObject implements DBSSchema, DBPRe
         throws DBException
     {
         return synonymCache.getAllObjects(monitor, this);
+    }
+
+    @Association
+    public OracleSynonym getSynonym(DBRProgressMonitor monitor, String name)
+        throws DBException
+    {
+        return synonymCache.getObject(monitor, this, name);
     }
 
     @Association
@@ -319,7 +345,9 @@ public class OracleSchema extends OracleGlobalObject implements DBSSchema, DBPRe
     {
         List<DBSObject> children = new ArrayList<>();
         children.addAll(tableCache.getAllObjects(monitor, this));
-        children.addAll(synonymCache.getAllObjects(monitor, this));
+        if (SYNONYMS_AS_CHILDREN) {
+            children.addAll(synonymCache.getAllObjects(monitor, this));
+        }
         children.addAll(packageCache.getAllObjects(monitor, this));
         return children;
     }
@@ -332,9 +360,11 @@ public class OracleSchema extends OracleGlobalObject implements DBSSchema, DBPRe
         if (table != null) {
             return table;
         }
-        OracleSynonym synonym = synonymCache.getObject(monitor, this, childName);
-        if (synonym != null) {
-            return synonym;
+        if (SYNONYMS_AS_CHILDREN) {
+            OracleSynonym synonym = synonymCache.getObject(monitor, this, childName);
+            if (synonym != null) {
+                return synonym;
+            }
         }
         return packageCache.getObject(monitor, this, childName);
     }
@@ -406,11 +436,58 @@ public class OracleSchema extends OracleGlobalObject implements DBSSchema, DBPRe
         return tableColumn;
     }
 
-    public static class TableCache extends JDBCStructLookupCache<OracleSchema, OracleTableBase, OracleTableColumn> {
+    ///////////////////////////////////
+    // Statistics
+
+    @Override
+    public boolean isStatisticsCollected() {
+        return hasStatistics;
+    }
+
+    @Override
+    public void collectObjectStatistics(DBRProgressMonitor monitor, boolean totalSizeOnly, boolean forceRefresh) throws DBException {
+        if (hasStatistics && !forceRefresh) {
+            return;
+        }
+        try (JDBCSession session = DBUtils.openMetaSession(monitor, this, "Load table status")) {
+            boolean hasDBA = getDataSource().isViewAvailable(monitor, OracleConstants.SCHEMA_SYS, "DBA_SEGMENTS");
+            try (JDBCPreparedStatement dbStat = session.prepareStatement(
+                "SELECT SEGMENT_NAME,SUM(bytes) TABLE_SIZE\n" +
+                    "FROM " + OracleUtils.getSysSchemaPrefix(getDataSource()) + (hasDBA ? "DBA_SEGMENTS" : "USER_SEGMENTS") + " s\n" +
+                    "WHERE S.SEGMENT_TYPE='TABLE'"  + (hasDBA ? " AND s.OWNER = ?" : "") + "\n" +
+                    "GROUP BY SEGMENT_NAME"))
+            {
+                if (hasDBA) {
+                    dbStat.setString(1, getName());
+                }
+                try (JDBCResultSet dbResult = dbStat.executeQuery()) {
+                    while (dbResult.next()) {
+                        String tableName = dbResult.getString(1);
+                        long bytes = dbResult.getLong(2);
+                        OracleTable table = getTable(monitor, tableName);
+                        if (table != null) {
+                            table.fetchTableSize(dbResult);
+                        }
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            throw new DBCException("Error reading table statistics", e);
+        } finally {
+            for (OracleTableBase table : tableCache.getCachedObjects()) {
+                if (table instanceof OracleTable && !((OracleTable) table).hasStatistics()) {
+                    ((OracleTable) table).setTableSize(0L);
+                }
+            }
+            hasStatistics = true;
+        }
+    }
+
+    public class TableCache extends JDBCStructLookupCache<OracleSchema, OracleTableBase, OracleTableColumn> {
 
         TableCache()
         {
-            super("TABLE_NAME");
+            super("OBJECT_NAME");
             setListOrderComparator(DBUtils.nameComparator());
         }
 
@@ -421,9 +498,11 @@ public class OracleSchema extends OracleGlobalObject implements DBSSchema, DBPRe
 
             boolean hasAllAllTables = owner.getDataSource().isViewAvailable(session.getProgressMonitor(), null, "ALL_ALL_TABLES");
             String tablesSource = hasAllAllTables ? "ALL_TABLES" : "TABLES";
+            String tableTypeColumns = hasAllAllTables ? "t.TABLE_TYPE_OWNER,t.TABLE_TYPE" : "NULL as TABLE_TYPE_OWNER, NULL as TABLE_TYPE";
 
+/*
             final JDBCPreparedStatement dbStat = session.prepareStatement(
-                "\tSELECT " + OracleUtils.getSysCatalogHint(owner.getDataSource()) + " t.OWNER,t.TABLE_NAME as TABLE_NAME,'TABLE' as OBJECT_TYPE,'VALID' as STATUS,t.TABLE_TYPE_OWNER,t.TABLE_TYPE,t.TABLESPACE_NAME,t.PARTITIONED,t.IOT_TYPE,t.IOT_NAME,t.TEMPORARY,t.SECONDARY,t.NESTED,t.NUM_ROWS \n" +
+                "SELECT " + OracleUtils.getSysCatalogHint(owner.getDataSource()) + " t.OWNER,t.TABLE_NAME as TABLE_NAME,'TABLE' as OBJECT_TYPE,'VALID' as STATUS," + tableTypeColumns + ",t.TABLESPACE_NAME,t.PARTITIONED,t.IOT_TYPE,t.IOT_NAME,t.TEMPORARY,t.SECONDARY,t.NESTED,t.NUM_ROWS \n" +
                     "\tFROM " + OracleUtils.getAdminAllViewPrefix(session.getProgressMonitor(), owner.getDataSource(), tablesSource) + " t\n" +
                     "\tWHERE t.OWNER=? AND NESTED='NO'" + (object == null && objectName == null ? "": " AND t.TABLE_NAME"+ tableOper + "?") + "\n" +
                 "UNION ALL\n" +
@@ -431,11 +510,16 @@ public class OracleSchema extends OracleGlobalObject implements DBSSchema, DBPRe
                     "\tFROM " + OracleUtils.getAdminAllViewPrefix(session.getProgressMonitor(), owner.getDataSource(), "OBJECTS") + " o \n" +
                     "\tWHERE o.OWNER=? AND o.OBJECT_TYPE='VIEW'" + (object == null && objectName == null  ? "": " AND o.OBJECT_NAME" + tableOper + "?") + "\n"
                 );
-            int index = 1;
-            dbStat.setString(index++, owner.getName());
-            if (object != null || objectName != null) dbStat.setString(index++, object != null ? object.getName() : objectName);
-            dbStat.setString(index++, owner.getName());
-            if (object != null || objectName != null) dbStat.setString(index, object != null ? object.getName() : objectName);
+*/
+            final JDBCPreparedStatement dbStat = session.prepareStatement("SELECT " + OracleUtils.getSysCatalogHint(owner.getDataSource()) +
+                " O.*,\n" +
+                tableTypeColumns + ",t.TABLESPACE_NAME,t.PARTITIONED,t.IOT_TYPE,t.IOT_NAME,t.TEMPORARY,t.SECONDARY,t.NESTED,t.NUM_ROWS\n" +
+                "FROM ALL_OBJECTS O\n" +
+                "LEFT OUTER JOIN " + OracleUtils.getAdminAllViewPrefix(session.getProgressMonitor(), owner.getDataSource(), tablesSource) + " t ON (t.OWNER = O.OWNER AND t.TABLE_NAME = o.OBJECT_NAME AND o.OBJECT_TYPE = 'TABLE')\n" +
+                "WHERE O.OWNER=? AND O.OBJECT_TYPE IN ('TABLE', 'VIEW', 'MATERIALIZED VIEW')" +
+                (object == null && objectName == null ? "": " AND t.TABLE_NAME" + tableOper + "?"));
+            dbStat.setString(1, owner.getName());
+            if (object != null || objectName != null) dbStat.setString(2, object != null ? object.getName() : objectName);
             return dbStat;
         }
 
@@ -446,6 +530,8 @@ public class OracleSchema extends OracleGlobalObject implements DBSSchema, DBPRe
             final String tableType = JDBCUtils.safeGetString(dbResult, "OBJECT_TYPE");
             if ("TABLE".equals(tableType)) {
                 return new OracleTable(session.getProgressMonitor(), owner, dbResult);
+            } else if ("MATERIALIZED VIEW".equals(tableType)) {
+                return new OracleMaterializedView(owner, dbResult);
             } else {
                 return new OracleView(owner, dbResult);
             }
@@ -461,7 +547,7 @@ public class OracleSchema extends OracleGlobalObject implements DBSSchema, DBPRe
             }
             StringBuilder sql = new StringBuilder(500);
             sql
-                .append("SELECT ").append(OracleUtils.getSysCatalogHint(owner.getDataSource())).append("\nc.* " +
+                .append("SELECT ").append(OracleUtils.getSysCatalogHint(owner.getDataSource())).append("\nc.*,c.TABLE_NAME as OBJECT_NAME " +
                     "FROM ").append(OracleUtils.getSysSchemaPrefix(owner.getDataSource())).append(colsView).append(" c\n" +
 //                    "LEFT OUTER JOIN " + OracleUtils.getSysSchemaPrefix(getDataSource()) + "ALL_COL_COMMENTS cc ON CC.OWNER=c.OWNER AND cc.TABLE_NAME=c.TABLE_NAME AND cc.COLUMN_NAME=c.COLUMN_NAME\n" +
                     "WHERE c.OWNER=?");
@@ -512,10 +598,43 @@ public class OracleSchema extends OracleGlobalObject implements DBSSchema, DBPRe
         protected JDBCStatement prepareObjectsStatement(JDBCSession session, OracleSchema owner, OracleTableBase forTable)
             throws SQLException
         {
+            
+            boolean useSimpleConnection = CommonUtils.toBoolean(session.getDataSource().getContainer().getConnectionConfiguration().getProviderProperty(OracleConstants.PROP_METADATA_USE_SIMPLE_CONSTRAINTS));
+
             StringBuilder sql = new StringBuilder(500);
             JDBCPreparedStatement dbStat;
             
-            if (owner.getDataSource().isAtLeastV10() && forTable != null) {
+            if (owner.getDataSource().isAtLeastV11() && forTable != null && !useSimpleConnection) {
+                
+                sql.append("SELECT\r\n" + 
+                        "    c.TABLE_NAME,\r\n" + 
+                        "    c.CONSTRAINT_NAME,\r\n" + 
+                        "    c.CONSTRAINT_TYPE,\r\n" + 
+                        "    c.STATUS,\r\n" + 
+                        "    c.SEARCH_CONDITION,\r\n" + 
+                        "    (\r\n" + 
+                        "      SELECT LISTAGG(COLUMN_NAME || ':' || POSITION,',') WITHIN GROUP (ORDER BY \"POSITION\") \r\n" + 
+                        "      FROM ALL_CONS_COLUMNS col\r\n" + 
+                        "      WHERE col.OWNER =? AND col.TABLE_NAME = ? AND col.CONSTRAINT_NAME = c.CONSTRAINT_NAME GROUP BY CONSTRAINT_NAME \r\n"+
+                        "    ) COLUMN_NAMES_NUMS\r\n" + 
+                        "FROM\r\n" + 
+                        "    " + OracleUtils.getAdminAllViewPrefix(session.getProgressMonitor(), getDataSource(), "CONSTRAINTS") + " c\r\n" + 
+                        "WHERE\r\n" + 
+                        "    c.CONSTRAINT_TYPE <> 'R'\r\n" + 
+                        "    AND c.OWNER = ?\r\n" + 
+                        "    AND c.TABLE_NAME = ?");   
+                // 1- owner
+                // 2-table name
+                // 3-owner
+                // 4-table name
+                
+                dbStat = session.prepareStatement(sql.toString());
+                dbStat.setString(1, OracleSchema.this.getName());
+                dbStat.setString(2, forTable.getName());
+                dbStat.setString(3, OracleSchema.this.getName());
+                dbStat.setString(4, forTable.getName());
+                
+            } else if (owner.getDataSource().isAtLeastV10() && forTable != null && !useSimpleConnection) {
                 
                  sql.append("SELECT\r\n" + 
                          "    c.TABLE_NAME,\r\n" + 
@@ -639,7 +758,7 @@ public class OracleSchema extends OracleGlobalObject implements DBSSchema, DBPRe
             
             this.column = data[0];
             
-            this.pos = Integer.valueOf(data[1]);
+            this.pos = data.length == 1 ? 0 : Integer.valueOf(data[1]);
             
             
         }
@@ -708,10 +827,44 @@ public class OracleSchema extends OracleGlobalObject implements DBSSchema, DBPRe
         protected JDBCStatement prepareObjectsStatement(JDBCSession session, OracleSchema owner, OracleTable forTable)
             throws SQLException
         {
+            boolean useSimpleConnection = CommonUtils.toBoolean(session.getDataSource().getContainer().getConnectionConfiguration().getProviderProperty(OracleConstants.PROP_METADATA_USE_SIMPLE_CONSTRAINTS));
+
             StringBuilder sql = new StringBuilder(500);
             JDBCPreparedStatement dbStat;
-            
-            if (owner.getDataSource().isAtLeastV10() && forTable != null) {
+             if (owner.getDataSource().isAtLeastV11() && forTable != null && !useSimpleConnection) {
+                 sql.append("SELECT \r\n" 
+                         + "    c.TABLE_NAME,\r\n" 
+                         + "    c.CONSTRAINT_NAME,\r\n"
+                         + "    c.CONSTRAINT_TYPE,\r\n" 
+                         + "    c.STATUS,\r\n" 
+                         + "    c.R_OWNER,\r\n"
+                         + "    c.R_CONSTRAINT_NAME,\r\n" 
+                         + "    (SELECT rc.TABLE_NAME FROM "
+                         + OracleUtils.getAdminAllViewPrefix(session.getProgressMonitor(), getDataSource(),"CONSTRAINTS")
+                         + " rc WHERE rc.OWNER = c.r_OWNER AND rc.CONSTRAINT_NAME = c.R_CONSTRAINT_NAME) AS R_TABLE_NAME,\r\n"
+                         + "    c.DELETE_RULE,\r\n" 
+                         + "    (\r\n"
+                         + "      SELECT LISTAGG(COLUMN_NAME || ':' || POSITION,',') WITHIN GROUP (ORDER BY \"POSITION\") \r\n" 
+                         + "      FROM ALL_CONS_COLUMNS col\r\n" 
+                         + "      WHERE col.OWNER =? AND col.TABLE_NAME = ? AND col.CONSTRAINT_NAME = c.CONSTRAINT_NAME GROUP BY CONSTRAINT_NAME \r\n"
+                         + "    ) COLUMN_NAMES_NUMS\r\n" + "FROM\r\n" + "    "
+                         + OracleUtils.getAdminAllViewPrefix(session.getProgressMonitor(), getDataSource(),
+                                 "CONSTRAINTS")
+                         + " c\r\n" + "WHERE\r\n" + "    c.CONSTRAINT_TYPE = 'R'\r\n" + "    AND c.OWNER = ?\r\n"
+                         + "    AND c.TABLE_NAME = ?");
+                 // 1- owner
+                 // 2-table name
+                 // 3-owner
+                 // 4-table name
+
+                 dbStat = session.prepareStatement(sql.toString());
+                 dbStat.setString(1, OracleSchema.this.getName());
+                 dbStat.setString(2, forTable.getName());
+                 dbStat.setString(3, OracleSchema.this.getName());
+                 dbStat.setString(4, forTable.getName());
+
+
+             }else if (owner.getDataSource().isAtLeastV10() && forTable != null && !useSimpleConnection) {
                 sql.append("SELECT \r\n" + "    c.TABLE_NAME,\r\n" + "    c.CONSTRAINT_NAME,\r\n"
                         + "    c.CONSTRAINT_TYPE,\r\n" + "    c.STATUS,\r\n" + "    c.R_OWNER,\r\n"
                         + "    c.R_CONSTRAINT_NAME,\r\n" + "    (SELECT rc.TABLE_NAME FROM "
@@ -918,6 +1071,7 @@ public class OracleSchema extends OracleGlobalObject implements DBSSchema, DBPRe
      * DataType cache implementation
      */
     static class DataTypeCache extends JDBCObjectCache<OracleSchema, OracleDataType> {
+        @NotNull
         @Override
         protected JDBCStatement prepareObjectsStatement(@NotNull JDBCSession session, @NotNull OracleSchema owner) throws SQLException
         {
@@ -940,6 +1094,7 @@ public class OracleSchema extends OracleGlobalObject implements DBSSchema, DBPRe
      * Sequence cache implementation
      */
     static class SequenceCache extends JDBCObjectCache<OracleSchema, OracleSequence> {
+        @NotNull
         @Override
         protected JDBCStatement prepareObjectsStatement(@NotNull JDBCSession session, @NotNull OracleSchema owner) throws SQLException
         {
@@ -962,6 +1117,7 @@ public class OracleSchema extends OracleGlobalObject implements DBSSchema, DBPRe
      * Queue cache implementation
      */
     static class QueueCache extends JDBCObjectCache<OracleSchema, OracleQueue> {
+        @NotNull
         @Override
         protected JDBCStatement prepareObjectsStatement(@NotNull JDBCSession session, @NotNull OracleSchema owner) throws SQLException
         {
@@ -1010,6 +1166,7 @@ public class OracleSchema extends OracleGlobalObject implements DBSSchema, DBPRe
 
     static class PackageCache extends JDBCObjectCache<OracleSchema, OraclePackage> {
 
+        @NotNull
         @Override
         protected JDBCStatement prepareObjectsStatement(@NotNull JDBCSession session, @NotNull OracleSchema owner)
             throws SQLException
@@ -1035,27 +1192,42 @@ public class OracleSchema extends OracleGlobalObject implements DBSSchema, DBPRe
     /**
      * Sequence cache implementation
      */
-    static class SynonymCache extends JDBCObjectCache<OracleSchema, OracleSynonym> {
+    static class SynonymCache extends JDBCObjectLookupCache<OracleSchema, OracleSynonym> {
+        @NotNull
         @Override
-        protected JDBCStatement prepareObjectsStatement(@NotNull JDBCSession session, @NotNull OracleSchema owner) throws SQLException
+        public JDBCStatement prepareLookupStatement(@NotNull JDBCSession session, @NotNull OracleSchema owner, OracleSynonym object, String objectName) throws SQLException
         {
             String synonymTypeFilter = (session.getDataSource().getContainer().getPreferenceStore().getBoolean(OracleConstants.PREF_DBMS_READ_ALL_SYNONYMS) ?
                 "" :
                 "AND O.OBJECT_TYPE NOT IN ('JAVA CLASS','PACKAGE BODY')\n");
 
-            JDBCPreparedStatement dbStat = session.prepareStatement(
-                "SELECT OWNER, SYNONYM_NAME, MAX(TABLE_OWNER) as TABLE_OWNER, MAX(TABLE_NAME) as TABLE_NAME, MAX(DB_LINK) as DB_LINK, MAX(OBJECT_TYPE) as OBJECT_TYPE FROM (\n" +
-                    "SELECT S.*, NULL OBJECT_TYPE FROM " + OracleUtils.getAdminAllViewPrefix(session.getProgressMonitor(), owner.getDataSource(), "SYNONYMS") + " S WHERE S.OWNER = ?\n" +
-                    "UNION ALL\n" +
-                    "SELECT S.*,O.OBJECT_TYPE FROM " + OracleUtils.getAdminAllViewPrefix(session.getProgressMonitor(), owner.getDataSource(), "SYNONYMS") + " S, " + OracleUtils.getAdminAllViewPrefix(session.getProgressMonitor(), owner.getDataSource(), "OBJECTS") + " O\n" +
-                    "WHERE S.OWNER = ?\n" +
-                    synonymTypeFilter +
-                    "AND O.OWNER=S.TABLE_OWNER AND O.OBJECT_NAME=S.TABLE_NAME\n" +
-                    ")\n" +
-                    "GROUP BY OWNER, SYNONYM_NAME\n" +
-                    "ORDER BY SYNONYM_NAME");
-            dbStat.setString(1, owner.getName());
-            dbStat.setString(2, owner.getName());
+            String synonymName = object != null ? object.getName() : objectName;
+
+            StringBuilder sql = new StringBuilder();
+            sql.append("SELECT OWNER, SYNONYM_NAME, MAX(TABLE_OWNER) as TABLE_OWNER, MAX(TABLE_NAME) as TABLE_NAME, MAX(DB_LINK) as DB_LINK, MAX(OBJECT_TYPE) as OBJECT_TYPE FROM (\n")
+                .append("SELECT S.*, NULL OBJECT_TYPE FROM ")
+                .append(OracleUtils.getAdminAllViewPrefix(session.getProgressMonitor(), owner.getDataSource(), "SYNONYMS"))
+                .append(" S WHERE S.OWNER = ?");
+            if (synonymName != null) sql.append(" AND S.SYNONYM_NAME = ?");
+            sql
+                .append("\nUNION ALL\n")
+                .append("SELECT S.*,O.OBJECT_TYPE FROM ").append(OracleUtils.getAdminAllViewPrefix(session.getProgressMonitor(), owner.getDataSource(), "SYNONYMS")).append(" S, ")
+                .append(OracleUtils.getAdminAllViewPrefix(session.getProgressMonitor(), owner.getDataSource(), "OBJECTS")).append(" O\n")
+                .append("WHERE S.OWNER = ?\n");
+            if (synonymName != null) sql.append(" AND S.SYNONYM_NAME = ? ");
+            sql.append(synonymTypeFilter)
+                .append("AND O.OWNER=S.TABLE_OWNER AND O.OBJECT_NAME=S.TABLE_NAME\n)\n");
+            sql.append("GROUP BY OWNER, SYNONYM_NAME");
+            if (synonymName == null) {
+                sql.append("\nORDER BY SYNONYM_NAME");
+            }
+
+            JDBCPreparedStatement dbStat = session.prepareStatement(sql.toString());
+            int paramNum = 1;
+            dbStat.setString(paramNum++, owner.getName());
+            if (synonymName != null) dbStat.setString(paramNum++, synonymName);
+            dbStat.setString(paramNum++, owner.getName());
+            if (synonymName != null) dbStat.setString(paramNum++, synonymName);
             return dbStat;
         }
 
@@ -1064,32 +1236,12 @@ public class OracleSchema extends OracleGlobalObject implements DBSSchema, DBPRe
         {
             return new OracleSynonym(owner, resultSet);
         }
-    }
-
-    static class MViewCache extends JDBCObjectLookupCache<OracleSchema, OracleMaterializedView> {
-
-        @Override
-        public JDBCStatement prepareLookupStatement(JDBCSession session, OracleSchema owner, OracleMaterializedView object, String objectName) throws SQLException {
-            JDBCPreparedStatement dbStat = session.prepareStatement(
-                "SELECT * FROM " + OracleUtils.getAdminAllViewPrefix(session.getProgressMonitor(), owner.getDataSource(), "MVIEWS") + " WHERE OWNER=? " +
-                    (object == null && objectName == null ? "" : "AND MVIEW_NAME=? ") +
-                "ORDER BY MVIEW_NAME");
-            dbStat.setString(1, owner.getName());
-            if (object != null || objectName != null) dbStat.setString(2, object != null ? object.getName() : objectName);
-            return dbStat;
-        }
-
-        @Override
-        protected OracleMaterializedView fetchObject(@NotNull JDBCSession session, @NotNull OracleSchema owner, @NotNull JDBCResultSet dbResult)
-            throws SQLException, DBException
-        {
-            return new OracleMaterializedView(owner, dbResult);
-        }
 
     }
 
     static class DBLinkCache extends JDBCObjectCache<OracleSchema, OracleDBLink> {
 
+        @NotNull
         @Override
         protected JDBCStatement prepareObjectsStatement(@NotNull JDBCSession session, @NotNull OracleSchema owner)
             throws SQLException
@@ -1112,6 +1264,7 @@ public class OracleSchema extends OracleGlobalObject implements DBSSchema, DBPRe
 
     static class TriggerCache extends JDBCObjectCache<OracleSchema, OracleSchemaTrigger> {
 
+        @NotNull
         @Override
         protected JDBCStatement prepareObjectsStatement(@NotNull JDBCSession session, @NotNull OracleSchema schema) throws SQLException
         {
@@ -1132,6 +1285,7 @@ public class OracleSchema extends OracleGlobalObject implements DBSSchema, DBPRe
 
     static class JavaCache extends JDBCObjectCache<OracleSchema, OracleJavaClass> {
 
+        @NotNull
         @Override
         protected JDBCStatement prepareObjectsStatement(@NotNull JDBCSession session, @NotNull OracleSchema owner)
             throws SQLException
@@ -1153,6 +1307,7 @@ public class OracleSchema extends OracleGlobalObject implements DBSSchema, DBPRe
 
     static class SchedulerJobCache extends JDBCObjectCache<OracleSchema, OracleSchedulerJob> {
 
+        @NotNull
         @Override
         protected JDBCStatement prepareObjectsStatement(@NotNull JDBCSession session, @NotNull OracleSchema owner)
                 throws SQLException
@@ -1174,6 +1329,7 @@ public class OracleSchema extends OracleGlobalObject implements DBSSchema, DBPRe
 
     static class SchedulerProgramCache extends JDBCObjectCache<OracleSchema, OracleSchedulerProgram> {
 
+        @NotNull
         @Override
         protected JDBCStatement prepareObjectsStatement(@NotNull JDBCSession session, @NotNull OracleSchema owner)
                 throws SQLException
@@ -1195,6 +1351,7 @@ public class OracleSchema extends OracleGlobalObject implements DBSSchema, DBPRe
 
     static class RecycleBin extends JDBCObjectCache<OracleSchema, OracleRecycledObject> {
 
+        @NotNull
         @Override
         protected JDBCStatement prepareObjectsStatement(@NotNull JDBCSession session, @NotNull OracleSchema owner)
             throws SQLException

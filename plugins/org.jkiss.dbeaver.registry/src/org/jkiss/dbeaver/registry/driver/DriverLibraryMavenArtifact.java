@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,7 +21,7 @@ import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
 import org.jkiss.dbeaver.Log;
 import org.jkiss.dbeaver.model.DBIcon;
-import org.jkiss.dbeaver.model.access.DBAAuthInfo;
+import org.jkiss.dbeaver.model.connection.DBPAuthInfo;
 import org.jkiss.dbeaver.model.connection.DBPDriverLibrary;
 import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
 import org.jkiss.dbeaver.registry.maven.*;
@@ -47,16 +47,19 @@ public class DriverLibraryMavenArtifact extends DriverLibraryAbstract
     protected MavenArtifactVersion localVersion;
     private String preferredVersion;
     private boolean ignoreDependencies;
+    private final String originalPreferredVersion;
 
     public DriverLibraryMavenArtifact(DriverDescriptor driver, FileType type, String path, String preferredVersion) {
         super(driver, type, path);
         initArtifactReference(preferredVersion);
+        this.originalPreferredVersion = this.preferredVersion;
     }
 
     public DriverLibraryMavenArtifact(DriverDescriptor driver, IConfigurationElement config) {
         super(driver, config);
         ignoreDependencies = CommonUtils.toBoolean(config.getAttribute("ignore-dependencies"));
         initArtifactReference(null);
+        this.originalPreferredVersion = this.preferredVersion;
     }
 
     private DriverLibraryMavenArtifact(DriverDescriptor driver, DriverLibraryMavenArtifact copyFrom) {
@@ -65,6 +68,18 @@ public class DriverLibraryMavenArtifact extends DriverLibraryAbstract
         this.localVersion = copyFrom.localVersion;
         this.preferredVersion = copyFrom.preferredVersion;
         this.ignoreDependencies = copyFrom.ignoreDependencies;
+
+        this.originalPreferredVersion = copyFrom.originalPreferredVersion;
+    }
+
+    public MavenArtifactReference getReference() {
+        return reference;
+    }
+
+    public void setReference(MavenArtifactReference reference) {
+        this.reference = reference;
+        this.path = PATH_PREFIX + reference.toString();
+        this.localVersion = null;
     }
 
     private void initArtifactReference(String preferredVersion) {
@@ -104,6 +119,10 @@ public class DriverLibraryMavenArtifact extends DriverLibraryAbstract
         return ignoreDependencies;
     }
 
+    public void setIgnoreDependencies(boolean ignoreDependencies) {
+        this.ignoreDependencies = ignoreDependencies;
+    }
+
     @NotNull
     @Override
     public Collection<String> getAvailableVersions(DBRProgressMonitor monitor) throws IOException {
@@ -131,6 +150,7 @@ public class DriverLibraryMavenArtifact extends DriverLibraryAbstract
     @Override
     public void resetVersion() {
         this.localVersion = null;
+        this.preferredVersion = originalPreferredVersion;
         MavenRegistry.getInstance().resetArtifactInfo(reference);
     }
 
@@ -165,7 +185,7 @@ public class DriverLibraryMavenArtifact extends DriverLibraryAbstract
     public String getExternalURL(DBRProgressMonitor monitor) {
         MavenArtifactVersion localVersion = getArtifactVersion(monitor);
         if (localVersion != null) {
-            return localVersion.getExternalURL(MavenArtifact.FILE_JAR);
+            return localVersion.getExternalURL();
         }
         return null;
     }
@@ -275,7 +295,7 @@ public class DriverLibraryMavenArtifact extends DriverLibraryAbstract
 
     @Nullable
     @Override
-    protected DBAAuthInfo getAuthInfo(DBRProgressMonitor monitor) {
+    protected DBPAuthInfo getAuthInfo(DBRProgressMonitor monitor) {
         MavenArtifactVersion localVersion = getArtifactVersion(monitor);
         if (localVersion != null) {
             return localVersion.getArtifact().getRepository().getAuthInfo();

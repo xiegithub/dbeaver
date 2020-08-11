@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,7 +26,7 @@ import org.eclipse.swt.widgets.Composite;
 import org.eclipse.swt.widgets.Shell;
 import org.eclipse.swt.widgets.Text;
 import org.jkiss.dbeaver.ext.postgresql.PostgreMessages;
-import org.jkiss.dbeaver.ext.postgresql.model.*;
+import org.jkiss.dbeaver.ext.postgresql.model.PostgreRole;
 import org.jkiss.dbeaver.ui.UIUtils;
 import org.jkiss.dbeaver.ui.dialogs.BaseDialog;
 
@@ -35,15 +35,15 @@ import org.jkiss.dbeaver.ui.dialogs.BaseDialog;
  */
 public class PostgreCreateRoleDialog extends BaseDialog
 {
-    private final PostgreDatabase database;
+    private final PostgreRole role;
 
     private String name;
     private String password;
     private boolean isUser = true;
 
-    public PostgreCreateRoleDialog(Shell parentShell, PostgreDatabase database) {
+    public PostgreCreateRoleDialog(Shell parentShell, PostgreRole role) {
         super(parentShell, PostgreMessages.dialog_create_role_title, null);
-        this.database = database;
+        this.role = role;
     }
 
     @Override
@@ -54,14 +54,12 @@ public class PostgreCreateRoleDialog extends BaseDialog
 
         final Text nameText = UIUtils.createLabelText(groupGeneral, PostgreMessages.dialog_create_role_label_role_name, ""); //$NON-NLS-2$
         nameText.addModifyListener(e -> {
-            name = nameText.getText();
+            name = nameText.getText().trim();
             getButton(IDialogConstants.OK_ID).setEnabled(!name.isEmpty());
         });
 
         final Text passwordText = UIUtils.createLabelText(groupGeneral, PostgreMessages.dialog_create_role_label_user_password, "", SWT.BORDER | SWT.PASSWORD); //$NON-NLS-2$
-        passwordText.addModifyListener(e -> {
-            password = passwordText.getText();
-        });
+        passwordText.addModifyListener(e -> password = passwordText.getText());
 
         Button isUserCheck = UIUtils.createCheckbox(groupGeneral, PostgreMessages.dialog_create_role_label_user_role, null, true, 2);
         isUserCheck.addSelectionListener(new SelectionAdapter() {

@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,19 +22,20 @@ import org.jkiss.code.Nullable;
 import org.jkiss.dbeaver.DBException;
 import org.jkiss.dbeaver.model.app.DBPDataSourceRegistry;
 import org.jkiss.dbeaver.model.app.DBPPlatform;
-import org.jkiss.dbeaver.model.connection.DBPNativeClientLocation;
+import org.jkiss.dbeaver.model.app.DBPProject;
 import org.jkiss.dbeaver.model.connection.DBPConnectionConfiguration;
 import org.jkiss.dbeaver.model.connection.DBPDriver;
+import org.jkiss.dbeaver.model.connection.DBPNativeClientLocation;
 import org.jkiss.dbeaver.model.data.DBDPreferences;
-import org.jkiss.dbeaver.model.exec.DBCExecutionContext;
+import org.jkiss.dbeaver.model.navigator.DBNBrowseSettings;
 import org.jkiss.dbeaver.model.net.DBWNetworkHandler;
 import org.jkiss.dbeaver.model.preferences.DBPPreferenceStore;
-import org.jkiss.dbeaver.model.runtime.DBRProgressListener;
 import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
+import org.jkiss.dbeaver.model.sql.SQLDialectMetadata;
 import org.jkiss.dbeaver.model.struct.DBSObject;
 import org.jkiss.dbeaver.model.struct.DBSObjectFilter;
 import org.jkiss.dbeaver.model.virtual.DBVModel;
-import org.jkiss.dbeaver.utils.GeneralUtils;
+import org.jkiss.dbeaver.runtime.IVariableResolver;
 
 import java.util.Collection;
 import java.util.Date;
@@ -42,7 +43,7 @@ import java.util.Date;
 /**
  * DBPDataSourceContainer
  */
-public interface DBPDataSourceContainer extends DBSObject, DBDPreferences, DBPNamedObject2
+public interface DBPDataSourceContainer extends DBSObject, DBDPreferences, DBPNamedObject2, DBPDataSourcePermissionOwner
 {
     /**
      * Container unique ID
@@ -57,6 +58,9 @@ public interface DBPDataSourceContainer extends DBSObject, DBDPreferences, DBPNa
      */
     @NotNull
     DBPDriver getDriver();
+
+    @NotNull
+    DBPDataSourceConfigurationStorage getConfigurationStorage();
 
     @NotNull
     DBPPlatform getPlatform();
@@ -76,19 +80,19 @@ public interface DBPDataSourceContainer extends DBSObject, DBDPreferences, DBPNa
     @NotNull
     DBPConnectionConfiguration getActualConnectionConfiguration();
 
+    @NotNull
+    DBNBrowseSettings getNavigatorSettings();
+
     boolean isProvided();
+
+    boolean isTemplate();
 
     boolean isTemporary();
 
-    void setTemporary(boolean temporary);
-
-    boolean isShowSystemObjects();
-
-    void setShowSystemObjects(boolean showSystemObjects);
-
-    boolean isShowUtilityObjects();
-
-    void setShowUtilityObjects(boolean showUtilityObjects);
+    // We do not implement DBPHiddenObject because it is not really hidden.
+    // This flag means that datasource shouldn't be included in the primary connection list.
+    // Also hidden connections are excluded from persistence
+    boolean isHidden();
 
     boolean isConnectionReadOnly();
 
@@ -100,8 +104,7 @@ public interface DBPDataSourceContainer extends DBSObject, DBDPreferences, DBPNa
 
     boolean isDefaultAutoCommit();
 
-    void setDefaultAutoCommit(boolean autoCommit, @Nullable  DBCExecutionContext updateContext, boolean updateConnection, @Nullable  Runnable onFinish)
-        throws DBException;
+    void setDefaultAutoCommit(boolean autoCommit);
 
     @Nullable
     DBPTransactionIsolation getActiveTransactionsIsolation();
@@ -109,8 +112,7 @@ public interface DBPDataSourceContainer extends DBSObject, DBDPreferences, DBPNa
     @Nullable
     Integer getDefaultTransactionsIsolation();
 
-    void setDefaultTransactionsIsolation(DBPTransactionIsolation isolationLevel)
-        throws DBException;
+    void setDefaultTransactionsIsolation(DBPTransactionIsolation isolationLevel);
 
     /**
      * Search for object filter which corresponds specified object type and parent object.
@@ -190,6 +192,9 @@ public interface DBPDataSourceContainer extends DBSObject, DBDPreferences, DBPNa
     @NotNull
     DBPDataSourceRegistry getRegistry();
 
+    @NotNull
+    DBPProject getProject();
+
     void persistConfiguration();
 
     @NotNull
@@ -197,6 +202,16 @@ public interface DBPDataSourceContainer extends DBSObject, DBDPreferences, DBPNa
 
     Date getConnectTime();
 
-    GeneralUtils.IVariableResolver getVariablesResolver();
+    @NotNull
+    SQLDialectMetadata getScriptDialect();
 
+    /**
+     * Make variable resolver for datasource properties.
+     * @param actualConfig if true then actual connection config will be used (e.g. with preprocessed host/port values).
+     */
+    IVariableResolver getVariablesResolver(boolean actualConfig);
+
+    DBPDataSourceContainer createCopy(DBPDataSourceRegistry forRegistry);
+
+    DBPExclusiveResource getExclusiveLock();
 }

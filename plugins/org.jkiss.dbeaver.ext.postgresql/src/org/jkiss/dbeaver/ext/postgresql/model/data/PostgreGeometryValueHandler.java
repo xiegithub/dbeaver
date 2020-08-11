@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,10 +29,11 @@ import org.jkiss.dbeaver.model.exec.jdbc.JDBCSession;
 import org.jkiss.dbeaver.model.gis.DBGeometry;
 import org.jkiss.dbeaver.model.gis.GisAttribute;
 import org.jkiss.dbeaver.model.impl.jdbc.data.handlers.JDBCAbstractValueHandler;
-import org.jkiss.dbeaver.model.sql.SQLUtils;
 import org.jkiss.dbeaver.model.struct.DBSTypedObject;
+import org.jkiss.utils.BeanUtils;
 import org.jkiss.utils.CommonUtils;
 import org.locationtech.jts.geom.Geometry;
+import org.locationtech.jts.io.ParseException;
 import org.locationtech.jts.io.WKBReader;
 import org.locationtech.jts.io.WKTReader;
 
@@ -50,7 +51,7 @@ public class PostgreGeometryValueHandler extends JDBCAbstractValueHandler {
     protected Object fetchColumnValue(DBCSession session, JDBCResultSet resultSet, DBSTypedObject type, int index) throws DBCException, SQLException {
         try {
             Object object = resultSet.getObject(index);
-            return getValueFromObject(session, type, object,false);
+            return getValueFromObject(session, type, object,false, false);
         } catch (SQLException e) {
             if (e.getCause() instanceof IllegalArgumentException) {
                 // Try to parse as WKG
@@ -97,7 +98,7 @@ public class PostgreGeometryValueHandler extends JDBCAbstractValueHandler {
     }
 
     @Override
-    public Object getValueFromObject(@NotNull DBCSession session, @NotNull DBSTypedObject type, Object object, boolean copy) throws DBCException {
+    public Object getValueFromObject(@NotNull DBCSession session, @NotNull DBSTypedObject type, Object object, boolean copy, boolean validateValue) throws DBCException {
         if (object == null) {
             return new DBGeometry();
         } else if (object instanceof DBGeometry) {
@@ -109,13 +110,13 @@ public class PostgreGeometryValueHandler extends JDBCAbstractValueHandler {
         } else if (object instanceof Geometry) {
             return new DBGeometry((Geometry) object);
         } else if (object instanceof String) {
-            return makeGeometryFromWKT(session, (String) object);
+            return makeGeometryFromWKT(session, (String) object, 2);
         } else if (object.getClass().getName().equals(PostgreConstants.PG_GEOMETRY_CLASS)) {
             return makeGeometryFromPGGeometry(session, object);
         } else if (object.getClass().getName().equals(PostgreConstants.PG_OBJECT_CLASS)) {
             return makeGeometryFromWKB(session, CommonUtils.toString(PostgreUtils.extractPGObjectValue(object)));
         } else {
-            return makeGeometryFromWKT(session, object.toString());
+            return makeGeometryFromWKT(session, object.toString(), 2);
         }
     }
 
@@ -140,14 +141,22 @@ public class PostgreGeometryValueHandler extends JDBCAbstractValueHandler {
 
     private DBGeometry makeGeometryFromPGGeometry(DBCSession session, Object value) throws DBCException {
         try {
+            Object geometry = BeanUtils.invokeObjectMethod(value, "getGeometry");
+            if (geometry != null) {
+                // Handle 3D geometries (#3629)
+                Object dimension = BeanUtils.invokeObjectMethod(geometry, "getDimension");
+                if (dimension instanceof Number) {
+                    return makeGeometryFromWKT(session, geometry.toString(), ((Number) dimension).intValue());
+                }
+            }
             String pgString = value.toString();
-            return makeGeometryFromWKT(session, pgString);
+            return makeGeometryFromWKT(session, pgString, 2);
         } catch (Throwable e) {
-            throw new DBCException(e, session.getDataSource());
+            throw new DBCException(e, session.getExecutionContext());
         }
     }
 
-    private DBGeometry makeGeometryFromWKT(DBCSession session, String pgString) throws DBCException {
+    private DBGeometry makeGeometryFromWKT(DBCSession session, String pgString, int dimensions) throws DBCException {
         if (CommonUtils.isEmpty(pgString)) {
             return new DBGeometry();
         }
@@ -155,17 +164,36 @@ public class PostgreGeometryValueHandler extends JDBCAbstractValueHandler {
         try {
             int divPos = pgString.indexOf(';');
             if (divPos == -1) {
-                return new DBGeometry(pgString);
+                // No SRID
+                if (dimensions == 2) {
+                    try {
+                        Geometry geometry = new WKTReader().read(pgString);
+                        return new DBGeometry(geometry);
+                    } catch (ParseException e) {
+                        // Can't parse
+                        return new DBGeometry(pgString);
+                    }
+                } else {
+                    return new DBGeometry(pgString);
+                }
             }
             String sridString = pgString.substring(0, divPos);
             String wktString = pgString.substring(divPos + 1);
-            Geometry geometry = new WKTReader().read(wktString);
+            int srid = 0;
             if (sridString.startsWith("SRID=")) {
-                geometry.setSRID(CommonUtils.toInt(sridString.substring(5)));
+                srid = CommonUtils.toInt(sridString.substring(5));
             }
-            return new DBGeometry(geometry);
+            if (dimensions == 2) {
+                Geometry geometry = new WKTReader().read(wktString);
+                if (srid > 0) {
+                    geometry.setSRID(srid);
+                }
+                return new DBGeometry(geometry);
+            } else {
+                return new DBGeometry(wktString, srid);
+            }
         } catch (Throwable e) {
-            throw new DBCException(e, session.getDataSource());
+            throw new DBCException(e, session.getExecutionContext());
         }
     }
 

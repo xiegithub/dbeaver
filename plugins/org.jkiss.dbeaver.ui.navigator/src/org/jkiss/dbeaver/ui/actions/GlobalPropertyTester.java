@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -37,9 +37,9 @@ public class GlobalPropertyTester extends PropertyTester {
     public boolean test(Object receiver, String property, Object[] args, Object expectedValue) {
         switch (property) {
             case PROP_HAS_MULTI_PROJECTS:
-                return DBWorkbench.getPlatform().getLiveProjects().size() > 1;
+                return DBWorkbench.getPlatform().getWorkspace().getProjects().size() > 1;
             case PROP_HAS_ACTIVE_PROJECT:
-                return DBWorkbench.getPlatform().getProjectManager().getActiveProject() != null;
+                return DBWorkbench.getPlatform().getWorkspace().getActiveProject() != null;
             case PROP_STANDALONE:
                 return DBWorkbench.getPlatform().getApplication().isStandalone();
         }

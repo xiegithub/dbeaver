@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,7 +23,9 @@ import org.eclipse.core.runtime.jobs.Job;
 import org.eclipse.jface.resource.ColorRegistry;
 import org.eclipse.jface.text.source.ISharedTextColors;
 import org.eclipse.swt.SWT;
-import org.eclipse.swt.events.*;
+import org.eclipse.swt.events.MouseAdapter;
+import org.eclipse.swt.events.MouseEvent;
+import org.eclipse.swt.events.PaintEvent;
 import org.eclipse.swt.graphics.Color;
 import org.eclipse.swt.graphics.Point;
 import org.eclipse.swt.graphics.RGB;
@@ -34,20 +36,23 @@ import org.eclipse.ui.*;
 import org.eclipse.ui.menus.WorkbenchWindowControlContribution;
 import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
+import org.jkiss.dbeaver.Log;
 import org.jkiss.dbeaver.model.DBPContextProvider;
 import org.jkiss.dbeaver.model.exec.DBCExecutionContext;
 import org.jkiss.dbeaver.model.exec.DBCSavepoint;
 import org.jkiss.dbeaver.model.exec.DBCStatement;
+import org.jkiss.dbeaver.model.exec.DBExecUtils;
 import org.jkiss.dbeaver.model.messages.ModelMessages;
 import org.jkiss.dbeaver.model.qm.QMTransactionState;
 import org.jkiss.dbeaver.model.qm.QMUtils;
 import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
 import org.jkiss.dbeaver.model.runtime.DefaultProgressMonitor;
 import org.jkiss.dbeaver.runtime.qm.DefaultExecutionHandler;
+import org.jkiss.dbeaver.ui.AbstractPartListener;
 import org.jkiss.dbeaver.ui.IActionConstants;
+import org.jkiss.dbeaver.ui.UIStyles;
 import org.jkiss.dbeaver.ui.UIUtils;
 import org.jkiss.dbeaver.ui.controls.querylog.QueryLogViewer;
-import org.jkiss.dbeaver.ui.AbstractPartListener;
 
 /**
  * DataSource Toolbar
@@ -55,10 +60,11 @@ import org.jkiss.dbeaver.ui.AbstractPartListener;
 public class TransactionMonitorToolbar {
 
     private static final int MONITOR_UPDATE_DELAY = 250;
+    private static final Log log = Log.getLog(TransactionMonitorToolbar.class);
 
     private IWorkbenchWindow workbenchWindow;
 
-    TransactionMonitorToolbar(IWorkbenchWindow workbenchWindow) {
+    private TransactionMonitorToolbar(IWorkbenchWindow workbenchWindow) {
         this.workbenchWindow = workbenchWindow;
     }
 
@@ -97,7 +103,11 @@ public class TransactionMonitorToolbar {
 
         @Override
         protected IStatus run(final IProgressMonitor monitor) {
-            monitorPanel.updateTransactionsInfo(new DefaultProgressMonitor(monitor));
+            try {
+                monitorPanel.updateTransactionsInfo(new DefaultProgressMonitor(monitor));
+            } catch (Throwable e) {
+                log.debug("Error updating transaction info: " + e.getMessage());
+            }
             return Status.OK_STATUS;
         }
     }
@@ -155,6 +165,7 @@ public class TransactionMonitorToolbar {
 
             ColorRegistry colorRegistry = workbenchWindow.getWorkbench().getThemeManager().getCurrentTheme().getColorRegistry();
 
+            Color colorTransaction = colorRegistry.get(QueryLogViewer.COLOR_TRANSACTION);
             Color colorReverted = colorRegistry.get(QueryLogViewer.COLOR_REVERTED);
             Color colorCommitted = colorRegistry.get(QueryLogViewer.COLOR_UNCOMMITTED);
             final RGB COLOR_FULL = colorReverted == null ? getDisplay().getSystemColor(SWT.COLOR_DARK_YELLOW).getRGB() : colorReverted.getRGB();
@@ -163,9 +174,9 @@ public class TransactionMonitorToolbar {
             final int updateCount = txnState == null ? 0 : txnState.getUpdateCount();
 
             if (txnState == null || !txnState.isTransactionMode()) {
-                bg = getDisplay().getSystemColor(SWT.COLOR_WIDGET_BACKGROUND);
+                bg = UIStyles.getDefaultTextBackground();
             } else if (updateCount == 0) {
-                bg = getDisplay().getSystemColor(SWT.COLOR_WHITE);
+                bg = colorTransaction;
             } else {
                 // Use gradient depending on update count
                 ISharedTextColors sharedColors = UIUtils.getSharedTextColors();
@@ -193,6 +204,7 @@ public class TransactionMonitorToolbar {
                 count = "None";
             }
             final Point textSize = e.gc.textExtent(count);
+            e.gc.setForeground(UIStyles.getDefaultTextForeground());
             e.gc.drawText(count, bounds.x + (bounds.width - textSize.x) / 2 - 2, bounds.y + (bounds.height - textSize.y) / 2 - 1);
         }
 
@@ -288,11 +300,13 @@ public class TransactionMonitorToolbar {
         @Override
         public synchronized void handleTransactionCommit(@NotNull DBCExecutionContext context) {
             refreshMonitor();
+            DBExecUtils.recoverSmartCommit(context);
         }
 
         @Override
         public synchronized void handleTransactionRollback(@NotNull DBCExecutionContext context, DBCSavepoint savepoint) {
             refreshMonitor();
+            DBExecUtils.recoverSmartCommit(context);
         }
 
 /*

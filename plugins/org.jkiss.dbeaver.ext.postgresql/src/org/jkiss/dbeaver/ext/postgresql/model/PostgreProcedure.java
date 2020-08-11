@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,6 +22,7 @@ import org.jkiss.dbeaver.DBException;
 import org.jkiss.dbeaver.Log;
 import org.jkiss.dbeaver.ext.postgresql.PostgreConstants;
 import org.jkiss.dbeaver.ext.postgresql.PostgreUtils;
+import org.jkiss.dbeaver.ext.postgresql.PostgreValueParser;
 import org.jkiss.dbeaver.model.*;
 import org.jkiss.dbeaver.model.edit.DBEPersistAction;
 import org.jkiss.dbeaver.model.exec.DBCException;
@@ -195,7 +196,7 @@ public class PostgreProcedure extends AbstractProcedure<PostgreDataSource, Postg
             String[] argDefaults = null;
             if (!CommonUtils.isEmpty(argDefaultsString)) {
                 try {
-                    argDefaults = PostgreUtils.parseObjectString(argDefaultsString);
+                    argDefaults = PostgreValueParser.parseSingleObject(argDefaultsString);
                 } catch (DBCException e) {
                     log.debug("Error parsing function parameters defaults", e);
                 }
@@ -204,6 +205,10 @@ public class PostgreProcedure extends AbstractProcedure<PostgreDataSource, Postg
                 // Assign defaults to last X arguments
                 int paramsAssigned = 0;
                 for (int i = params.size() - 1; i >= 0; i--) {
+                    DBSProcedureParameterKind parameterKind = params.get(i).getParameterKind();
+                    if (parameterKind == DBSProcedureParameterKind.OUT || parameterKind == DBSProcedureParameterKind.TABLE || parameterKind == DBSProcedureParameterKind.RETURN) {
+                        continue;
+                    }
                     params.get(i).setDefaultValue(argDefaults[argDefaults.length - 1 - paramsAssigned]);
                     paramsAssigned++;
                     if (paramsAssigned >= argDefaults.length) {
@@ -249,14 +254,9 @@ public class PostgreProcedure extends AbstractProcedure<PostgreDataSource, Postg
 
         this.config = JDBCUtils.safeGetArray(dbResult, "proconfig");
 
-        if (getDataSource().isServerVersionAtLeast(11, 0)) {
+        if (getDataSource().getServerType().supportsStoredProcedures()) {
             String proKind = JDBCUtils.safeGetString(dbResult, "prokind");
-            try {
-                kind = PostgreProcedureKind.valueOf(proKind);
-            } catch (IllegalArgumentException e) {
-                log.warn("Unsupported procedure kind:" + proKind);
-                kind = PostgreProcedureKind.f;
-            }
+            kind = CommonUtils.valueOf(PostgreProcedureKind.class, proKind, PostgreProcedureKind.f);
         } else {
             if (isAggregate) {
                 kind = PostgreProcedureKind.a;
@@ -370,7 +370,7 @@ public class PostgreProcedure extends AbstractProcedure<PostgreDataSource, Postg
     {
         String procDDL;
         boolean omitHeader = CommonUtils.getOption(options, OPTION_DEBUGGER_SOURCE);
-        if (!getDataSource().getServerType().supportFunctionDefRead() || omitHeader) {
+        if (isPersisted() && (!getDataSource().getServerType().supportsFunctionDefRead() || omitHeader)) {
             if (procSrc == null) {
                 try (JDBCSession session = DBUtils.openMetaSession(monitor, this, "Read procedure body")) {
                     procSrc = JDBCUtils.queryString(session, "SELECT prosrc FROM pg_proc where oid = ?", getObjectId());
@@ -459,7 +459,7 @@ public class PostgreProcedure extends AbstractProcedure<PostgreDataSource, Postg
         if (isWindow()) {
             decl.append("\tWINDOW").append(lineSeparator);
         }
-        if (procVolatile != null) {
+        if (getProcedureType() == DBSProcedureType.FUNCTION && procVolatile != null) {
             decl.append("\t").append(procVolatile.getCreateClause()).append(lineSeparator);
         }
         if (execCost > 0 && execCost != DEFAULT_COST) {
@@ -486,10 +486,10 @@ public class PostgreProcedure extends AbstractProcedure<PostgreDataSource, Postg
                 }
             }
         }
-        String delimiter = "$" + getProcedureType().name().toLowerCase(Locale.ENGLISH) + "$";
-        decl.append("AS ").append(delimiter).append(" ");
+        String delimiter = "$$";// + getProcedureType().name().toLowerCase(Locale.ENGLISH) + "$";
+        decl.append("AS ").append(delimiter).append("\n");
         if (!CommonUtils.isEmpty(functionBody)) {
-            decl.append("\t").append(functionBody).append(" ");
+            decl.append("\t").append(functionBody).append("\n");
         }
         decl.append(delimiter).append(lineSeparator);
 
@@ -607,7 +607,7 @@ public class PostgreProcedure extends AbstractProcedure<PostgreDataSource, Postg
                 final PostgreDataType dataType = param.getParameterType();
                 final PostgreSchema typeContainer = dataType.getParentObject();
                 if (typeContainer == null ||
-                    typeContainer == schema ||
+                    typeContainer.isPublicSchema() ||
                     typeContainer.isCatalogSchema())
                 {
                     paramsSignature.append(dataType.getName());

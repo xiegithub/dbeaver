@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,7 +20,7 @@ import org.eclipse.core.runtime.IConfigurationElement;
 import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
 import org.jkiss.dbeaver.Log;
-import org.jkiss.dbeaver.model.access.DBAAuthInfo;
+import org.jkiss.dbeaver.model.connection.DBPAuthInfo;
 import org.jkiss.dbeaver.model.connection.DBPDriverLibrary;
 import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
 import org.jkiss.dbeaver.model.runtime.OSDescriptor;
@@ -29,7 +29,8 @@ import org.jkiss.dbeaver.runtime.DBWorkbench;
 import org.jkiss.dbeaver.runtime.WebUtils;
 import org.jkiss.utils.CommonUtils;
 
-import java.io.*;
+import java.io.File;
+import java.io.IOException;
 import java.util.Collection;
 import java.util.Collections;
 
@@ -209,7 +210,7 @@ public abstract class DriverLibraryAbstract implements DBPDriverLibrary
         if (localFile == null) {
             throw new IOException("No target file for '" + getPath() + "'");
         }
-        if (!forceUpdate && localFile.exists()) {
+        if (!forceUpdate && localFile.exists() && localFile.length() > 0) {
             return;
         }
         final File localDir = localFile.getParentFile();
@@ -228,7 +229,7 @@ public abstract class DriverLibraryAbstract implements DBPDriverLibrary
     }
 
     @Nullable
-    protected DBAAuthInfo getAuthInfo(DBRProgressMonitor monitor) {
+    protected DBPAuthInfo getAuthInfo(DBRProgressMonitor monitor) {
         return null;
     }
 

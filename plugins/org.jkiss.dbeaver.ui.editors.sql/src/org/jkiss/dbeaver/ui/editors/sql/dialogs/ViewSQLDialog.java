@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,25 +24,30 @@ import org.eclipse.swt.widgets.Composite;
 import org.eclipse.swt.widgets.Control;
 import org.eclipse.ui.IWorkbenchPartSite;
 import org.jkiss.code.Nullable;
+import org.jkiss.dbeaver.model.DBPContextProvider;
 import org.jkiss.dbeaver.model.DBPImage;
 import org.jkiss.dbeaver.model.exec.DBCExecutionContext;
 import org.jkiss.dbeaver.ui.UIUtils;
+import org.jkiss.dbeaver.ui.controls.resultset.internal.ResultSetMessages;
+import org.jkiss.dbeaver.ui.editors.sql.handlers.SQLEditorHandlerOpenEditor;
+import org.jkiss.dbeaver.ui.editors.sql.handlers.SQLNavigatorContext;
 import org.jkiss.dbeaver.ui.editors.sql.internal.SQLEditorMessages;
 
 public class ViewSQLDialog extends BaseSQLDialog {
 
     private static final String DIALOG_ID = "DBeaver.ViewSQLDialog";//$NON-NLS-1$
 
-    private DBCExecutionContext context;
+    private DBPContextProvider contextProvider;
     private String text;
     private boolean showSaveButton = false;
     private boolean enlargeViewPanel = true;
     private boolean wordWrap = false;
+    private boolean showOpenEditorButton;
 
-    public ViewSQLDialog(final IWorkbenchPartSite parentSite, @Nullable DBCExecutionContext context, String title, @Nullable DBPImage image, String text)
+    public ViewSQLDialog(final IWorkbenchPartSite parentSite, @Nullable DBPContextProvider contextProvider, String title, @Nullable DBPImage image, String text)
     {
         super(parentSite, title, image);
-        this.context = context;
+        this.contextProvider = contextProvider;
         this.text = text;
     }
 
@@ -59,6 +64,10 @@ public class ViewSQLDialog extends BaseSQLDialog {
 
     public void setEnlargeViewPanel(boolean enlargeViewPanel) {
         this.enlargeViewPanel = enlargeViewPanel;
+    }
+
+    public void setShowOpenEditorButton(boolean showOpenEditorButton) {
+        this.showOpenEditorButton = showOpenEditorButton;
     }
 
     @Override
@@ -101,13 +110,21 @@ public class ViewSQLDialog extends BaseSQLDialog {
     @Override
     protected void createButtonsForButtonBar(Composite parent)
     {
+        if (showOpenEditorButton) {
+            createButton(parent, IDialogConstants.OPEN_ID, ResultSetMessages.dialog_text_view_open_editor, true);
+        }
         if (showSaveButton) {
             createButton(parent, IDialogConstants.PROCEED_ID, SQLEditorMessages.dialog_view_sql_button_persist, true);
             createCopyButton(parent);
             createButton(parent, IDialogConstants.CANCEL_ID, IDialogConstants.CANCEL_LABEL, false);
         } else {
-            createCopyButton(parent);
-            createButton(parent, IDialogConstants.OK_ID, IDialogConstants.CLOSE_LABEL, true);
+            if (isReadOnly()) {
+                createCopyButton(parent);
+                createButton(parent, IDialogConstants.OK_ID, IDialogConstants.CLOSE_LABEL, true);
+            } else {
+                // Standard OK/Cancel
+                super.createButtonsForButtonBar(parent);
+            }
         }
     }
 
@@ -124,7 +141,20 @@ public class ViewSQLDialog extends BaseSQLDialog {
     @Override
     protected void buttonPressed(int buttonId)
     {
-        if (buttonId == IDialogConstants.PROCEED_ID) {
+        if (buttonId == IDialogConstants.OPEN_ID) {
+            String title = getTitle();
+            String text = getText();
+            UIUtils.asyncExec(() ->
+                {
+                    SQLEditorHandlerOpenEditor.openSQLConsole(
+                        UIUtils.getActiveWorkbenchWindow(),
+                        new SQLNavigatorContext(contextProvider.getExecutionContext()),
+                        title,
+                        text);
+                }
+            );
+            close();
+        } else if (buttonId == IDialogConstants.PROCEED_ID) {
             setReturnCode(IDialogConstants.PROCEED_ID);
             close();
         } else {
@@ -134,6 +164,7 @@ public class ViewSQLDialog extends BaseSQLDialog {
 
     @Override
     protected DBCExecutionContext getExecutionContext() {
-        return context;
+        return contextProvider.getExecutionContext();
     }
+
 }

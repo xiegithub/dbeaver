@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -32,8 +32,6 @@ import org.jkiss.dbeaver.model.exec.DBCExecutionContext;
 import org.jkiss.dbeaver.model.navigator.DBNDataSource;
 import org.jkiss.dbeaver.model.navigator.DBNDatabaseNode;
 import org.jkiss.dbeaver.model.preferences.DBPPropertySource;
-import org.jkiss.dbeaver.model.runtime.VoidProgressMonitor;
-import org.jkiss.dbeaver.model.struct.DBSInstanceLazy;
 import org.jkiss.dbeaver.model.struct.DBSObject;
 import org.jkiss.dbeaver.runtime.DBWorkbench;
 import org.jkiss.dbeaver.runtime.properties.PropertySourceEditable;
@@ -98,6 +96,9 @@ public abstract class DatabaseEditorInput<NODE extends DBNDatabaseNode> implemen
     @Override
     public String getName()
     {
+        if (node == null) {
+            return "?";
+        }
         if (DBWorkbench.getPlatform().getPreferenceStore().getBoolean(DatabaseEditorPreferences.PROP_TITLE_SHOW_FULL_NAME)) {
             return node.getNodeFullName();
         } else {
@@ -176,7 +177,7 @@ public abstract class DatabaseEditorInput<NODE extends DBNDatabaseNode> implemen
     @Override
     public DBSObject getDatabaseObject()
     {
-        return node.getObject();
+        return node == null ? null : node.getObject();
     }
 
     @Override

@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,12 +25,10 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
-public class NetworkHandlerRegistry
-{
+public class NetworkHandlerRegistry {
     private static NetworkHandlerRegistry instance = null;
 
-    public synchronized static NetworkHandlerRegistry getInstance()
-    {
+    public synchronized static NetworkHandlerRegistry getInstance() {
         if (instance == null) {
             instance = new NetworkHandlerRegistry(Platform.getExtensionRegistry());
         }
@@ -39,8 +37,7 @@ public class NetworkHandlerRegistry
 
     private final List<NetworkHandlerDescriptor> descriptors = new ArrayList<>();
 
-    private NetworkHandlerRegistry(IExtensionRegistry registry)
-    {
+    private NetworkHandlerRegistry(IExtensionRegistry registry) {
         // Load data descriptors from external plugins
         {
             IConfigurationElement[] extElements = registry.getConfigurationElementsFor(NetworkHandlerDescriptor.EXTENSION_ID);
@@ -48,19 +45,33 @@ public class NetworkHandlerRegistry
                 NetworkHandlerDescriptor formatterDescriptor = new NetworkHandlerDescriptor(ext);
                 descriptors.add(formatterDescriptor);
             }
+
+            // Remove replaced handlers
+            for (NetworkHandlerDescriptor hd1 : descriptors) {
+                for (NetworkHandlerDescriptor hd2 : descriptors) {
+                    if (hd2.replaces(hd1)) {
+                        hd1.setReplacedBy(hd2);
+                        break;
+                    }
+                }
+            }
+
             descriptors.sort(Comparator.comparingInt(NetworkHandlerDescriptor::getOrder));
         }
     }
 
-    public List<NetworkHandlerDescriptor> getDescriptors()
-    {
-        return descriptors;
+    public List<NetworkHandlerDescriptor> getDescriptors() {
+        List<NetworkHandlerDescriptor> descList = new ArrayList<>(descriptors);
+        descList.removeIf(nhd -> nhd.getReplacedBy() != null);
+        return descList;
     }
-    
-    public NetworkHandlerDescriptor getDescriptor(String id)
-    {
+
+    public NetworkHandlerDescriptor getDescriptor(String id) {
         for (NetworkHandlerDescriptor descriptor : descriptors) {
             if (descriptor.getId().equals(id)) {
+                if (descriptor.getReplacedBy() != null) {
+                    return descriptor.getReplacedBy();
+                }
                 return descriptor;
             }
         }
@@ -68,12 +79,19 @@ public class NetworkHandlerRegistry
     }
 
     public List<NetworkHandlerDescriptor> getDescriptors(DBPDataSourceContainer dataSource) {
+/*
+        if (dataSource.getDriver().isEmbedded()) {
+            // No network handlers for embedded drivers
+            return Collections.emptyList();
+        }
+*/
         List<NetworkHandlerDescriptor> result = new ArrayList<>();
         for (NetworkHandlerDescriptor d : descriptors) {
-            if (!d.hasObjectTypes() || d.matches(dataSource.getDriver().getDataSourceProvider())) {
+            if (d.getReplacedBy() == null && !d.hasObjectTypes() || d.matches(dataSource)) {
                 result.add(d);
             }
         }
         return result;
     }
+
 }

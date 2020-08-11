@@ -1,7 +1,7 @@
 /*
  * DBeaver - Universal Database Manager
  * Copyright (C) 2016-2016 Karl Griesser (fullref@gmail.com)
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,12 +29,12 @@ import org.jkiss.dbeaver.model.DBUtils;
 import org.jkiss.dbeaver.model.edit.DBECommandContext;
 import org.jkiss.dbeaver.model.edit.DBEObjectRenamer;
 import org.jkiss.dbeaver.model.edit.DBEPersistAction;
-import org.jkiss.dbeaver.model.impl.DBSObjectCache;
+import org.jkiss.dbeaver.model.exec.DBCExecutionContext;
 import org.jkiss.dbeaver.model.impl.edit.SQLDatabasePersistAction;
 import org.jkiss.dbeaver.model.impl.sql.edit.struct.SQLTableColumnManager;
 import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
-import org.jkiss.dbeaver.model.runtime.VoidProgressMonitor;
 import org.jkiss.dbeaver.model.struct.DBSObject;
+import org.jkiss.dbeaver.model.struct.cache.DBSObjectCache;
 import org.jkiss.utils.CommonUtils;
 
 import java.math.BigDecimal;
@@ -87,10 +87,10 @@ public class ExasolTableColumnManager extends SQLTableColumnManager<ExasolTableC
     // ------
 
     @Override
-    protected ExasolTableColumn createDatabaseObject(DBRProgressMonitor monitor, DBECommandContext context, ExasolTableBase parent,
-                                                     Object copyFrom) {
-        ExasolTableColumn column = new ExasolTableColumn(parent);
-        column.setName(getNewColumnName(monitor, context, parent));
+    protected ExasolTableColumn createDatabaseObject(DBRProgressMonitor monitor, DBECommandContext context, Object container,
+                                                     Object copyFrom, Map<String, Object> options) {
+        ExasolTableColumn column = new ExasolTableColumn((ExasolTableBase) container);
+        column.setName(getNewColumnName(monitor, context, (ExasolTableBase) container));
         return column;
     }
     
@@ -99,7 +99,7 @@ public class ExasolTableColumnManager extends SQLTableColumnManager<ExasolTableC
     // Alter
     // -----
     @Override
-    protected void addObjectModifyActions(DBRProgressMonitor monitor, List<DBEPersistAction> actionList, ObjectChangeCommand command, Map<String, Object> options) {
+    protected void addObjectModifyActions(DBRProgressMonitor monitor, DBCExecutionContext executionContext, List<DBEPersistAction> actionList, ObjectChangeCommand command, Map<String, Object> options) {
         ExasolTableColumn exasolColumn = command.getObject();
         Map<Object,Object> props = command.getProperties();
 
@@ -136,7 +136,7 @@ public class ExasolTableColumnManager extends SQLTableColumnManager<ExasolTableC
         if (command.getProperties().containsKey("distKey"))
         {
         	try {
-				actionList.addAll(modifyDistKey(exasolColumn));
+				actionList.addAll(modifyDistKey(monitor, exasolColumn));
 			} catch (DBException e) {
 				log.error("Failed to modify distkey settings",e);
 			}
@@ -182,7 +182,7 @@ public class ExasolTableColumnManager extends SQLTableColumnManager<ExasolTableC
     }
 
     @Override
-    protected void addObjectRenameActions(DBRProgressMonitor monitor, List<DBEPersistAction> actions, ObjectRenameCommand command, Map<String, Object> options) {
+    protected void addObjectRenameActions(DBRProgressMonitor monitor, DBCExecutionContext executionContext, List<DBEPersistAction> actions, ObjectRenameCommand command, Map<String, Object> options) {
         final ExasolTableColumn column = command.getObject();
 
         actions.add(
@@ -195,14 +195,13 @@ public class ExasolTableColumnManager extends SQLTableColumnManager<ExasolTableC
     }
     
     @Override
-    protected void addObjectCreateActions(DBRProgressMonitor monitor, List<DBEPersistAction> actions,
+    protected void addObjectCreateActions(DBRProgressMonitor monitor, DBCExecutionContext executionContext, List<DBEPersistAction> actions,
                                           ObjectCreateCommand command,
                                           Map<String, Object> options) {
     	final ExasolTableColumn exasolColumn = command.getObject();
     	
     	// build nullability string
-    	String nullability = "";
-		nullability = exasolColumn.isRequired() ? "NOT NULL" : "NULL";
+    	String nullability = exasolColumn.isRequired() ? "NOT NULL" : "NULL";
     		
         final String addSQL = DBUtils.getQuotedIdentifier(exasolColumn) + " " + exasolColumn.getFormatType()
             + " " + (exasolColumn.getDefaultValue() == null ? "" : " DEFAULT " + exasolColumn.getDefaultValue())
@@ -218,7 +217,7 @@ public class ExasolTableColumnManager extends SQLTableColumnManager<ExasolTableC
         
         if (exasolColumn.isDistKey())
 			try {
-				modifyDistKey(exasolColumn);
+				modifyDistKey(monitor, exasolColumn);
 			} catch (DBException e) {
 				log.error("Failed to generate distribution key",e);
 			}
@@ -233,7 +232,7 @@ public class ExasolTableColumnManager extends SQLTableColumnManager<ExasolTableC
     			"Drop Distribution Key",
     			String.format(
     					DROP_DIST_KEY, 
-    					((ExasolTable) exasolColumn.getParentObject()).getFullyQualifiedName(DBPEvaluationContext.DDL)
+    					exasolColumn.getParentObject().getFullyQualifiedName(DBPEvaluationContext.DDL)
     					)
     			);
     }
@@ -241,7 +240,7 @@ public class ExasolTableColumnManager extends SQLTableColumnManager<ExasolTableC
     private SQLDatabasePersistAction generateCreateDist(Collection<ExasolTableColumn> distKey)
     {
     	ExasolTable table = null;
-    	Collection<String> names = new ArrayList<String>();
+    	Collection<String> names = new ArrayList<>();
     	
     	for(ExasolTableColumn c: distKey)
     	{
@@ -257,13 +256,13 @@ public class ExasolTableColumnManager extends SQLTableColumnManager<ExasolTableC
     	
     	
     }
-    private Collection<SQLDatabasePersistAction> modifyDistKey(ExasolTableColumn exasolColumn) throws DBException
+    private Collection<SQLDatabasePersistAction> modifyDistKey(DBRProgressMonitor monitor, ExasolTableColumn exasolColumn) throws DBException
     {
     	ExasolTable table = (ExasolTable) exasolColumn.getParentObject();
-    	Collection<ExasolTableColumn> distKey = table.getDistributionKey(new VoidProgressMonitor());
+    	Collection<ExasolTableColumn> distKey = table.getDistributionKey(monitor);
     	Collection<SQLDatabasePersistAction> commands = new ArrayList<SQLDatabasePersistAction>();
     	
-    	if (table.getHasDistKey(new VoidProgressMonitor()))
+    	if (table.getAdditionalInfo(monitor).getHasDistKey(monitor))
     	{
     		commands.add(generateDropDist(exasolColumn));
     	}

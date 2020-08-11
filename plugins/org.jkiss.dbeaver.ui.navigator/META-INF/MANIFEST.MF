@@ -3,8 +3,8 @@ Bundle-ManifestVersion: 2
 Bundle-Vendor: %Bundle-Vendor
 Bundle-Name: %Bundle-Name
 Bundle-SymbolicName: org.jkiss.dbeaver.ui.navigator;singleton:=true
-Bundle-Version: 1.0.11.qualifier
-Bundle-Release-Date: 20190624
+Bundle-Version: 1.0.38.qualifier
+Bundle-Release-Date: 20200803
 Bundle-RequiredExecutionEnvironment: JavaSE-1.8
 Bundle-ActivationPolicy: lazy
 Bundle-Activator: org.jkiss.dbeaver.ui.internal.UINavigatorActivator
@@ -18,6 +18,7 @@ Require-Bundle: org.eclipse.equinox.preferences,
  org.eclipse.ui,
  org.eclipse.ui.ide,
  org.eclipse.ui.views,
+ org.eclipse.ui.workbench.texteditor,
  org.eclipse.e4.ui.model.workbench,
  org.eclipse.e4.ui.services,
  org.eclipse.e4.ui.workbench.swt,
@@ -29,8 +30,6 @@ Require-Bundle: org.eclipse.equinox.preferences,
 Export-Package: org.jkiss.dbeaver.ui.controls,
  org.jkiss.dbeaver.ui.actions,
  org.jkiss.dbeaver.ui.actions.datasource,
- org.jkiss.dbeaver.ui.controls.itemlist,
- org.jkiss.dbeaver.ui.navigator,
  org.jkiss.dbeaver.ui.editors.entity,
  org.jkiss.dbeaver.ui.editors.entity.handlers,
  org.jkiss.dbeaver.ui.editors.entity.properties,
@@ -40,8 +39,10 @@ Export-Package: org.jkiss.dbeaver.ui.controls,
  org.jkiss.dbeaver.ui.navigator.database,
  org.jkiss.dbeaver.ui.navigator.database.load,
  org.jkiss.dbeaver.ui.navigator.dialogs,
+ org.jkiss.dbeaver.ui.navigator.itemlist,
  org.jkiss.dbeaver.ui.navigator.project,
  org.jkiss.dbeaver.ui.preferences,
+ org.jkiss.dbeaver.ui.project,
  org.jkiss.dbeaver.ui.resources,
- org.jkiss.dbeaver.tools.project,
- org.jkiss.dbeaver.tools.registry
+ org.jkiss.dbeaver.tools.project
+Automatic-Module-Name: org.jkiss.dbeaver.ui.navigator

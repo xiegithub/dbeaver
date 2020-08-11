@@ -1,11 +1,13 @@
 package org.jkiss.dbeaver.ext.greenplum.model;
 
 import org.jkiss.dbeaver.DBException;
-import org.jkiss.dbeaver.ext.postgresql.model.*;
+import org.jkiss.dbeaver.ext.postgresql.model.PostgreDatabase;
+import org.jkiss.dbeaver.ext.postgresql.model.PostgreDialect;
+import org.jkiss.dbeaver.ext.postgresql.model.PostgreLanguage;
+import org.jkiss.dbeaver.ext.postgresql.model.PostgreSchema;
 import org.jkiss.dbeaver.model.exec.jdbc.JDBCResultSet;
 import org.jkiss.dbeaver.model.impl.jdbc.JDBCExecutionContext;
 import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
-import org.jkiss.dbeaver.ext.greenplum.model.GreenplumDataSource;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -57,12 +59,13 @@ public class GreenplumFunctionTest {
         Mockito.when(mockSchema.getTableCache()).thenReturn(mockTableCache);
         Mockito.when(mockSchema.getConstraintCache()).thenReturn(mockConstraintCache);
 
+        Mockito.when(mockDataSource.getServerType()).thenReturn(new PostgreServerGreenplum(mockDataSource));
         Mockito.when(mockDataSource.getSQLDialect()).thenReturn(new PostgreDialect());
         Mockito.when(mockDataSource.isServerVersionAtLeast(Mockito.anyInt(), Mockito.anyInt())).thenReturn(false);
         Mockito.when(mockDataSource.getDefaultInstance()).thenReturn(mockDatabase);
 
         Mockito.when(mockDatabase.getName()).thenReturn(exampleDatabaseName);
-        Mockito.when(mockDatabase.getDefaultContext(true)).thenReturn(mockContext);
+        Mockito.when(mockDatabase.getDefaultContext(Mockito.anyObject(), Mockito.anyBoolean())).thenReturn(mockContext);
 
         Mockito.when(mockResults.getString("proname")).thenReturn("sampleFunction");
         postgreLanguage = new PostgreLanguage(mockDatabase, mockResults);

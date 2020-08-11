@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,6 +20,7 @@ import org.eclipse.core.commands.ExecutionEvent;
 import org.eclipse.core.commands.ExecutionException;
 import org.eclipse.jface.viewers.ISelection;
 import org.eclipse.jface.viewers.IStructuredSelection;
+import org.eclipse.swt.widgets.Shell;
 import org.eclipse.ui.IWorkbenchWindow;
 import org.eclipse.ui.handlers.HandlerUtil;
 import org.jkiss.dbeaver.DBException;
@@ -33,6 +34,7 @@ import org.jkiss.dbeaver.model.runtime.VoidProgressMonitor;
 import org.jkiss.dbeaver.model.struct.DBSObject;
 import org.jkiss.dbeaver.runtime.DBWorkbench;
 import org.jkiss.dbeaver.runtime.TasksJob;
+import org.jkiss.dbeaver.ui.UIUtils;
 import org.jkiss.dbeaver.ui.dialogs.EnterNameDialog;
 import org.jkiss.utils.CommonUtils;
 
@@ -49,20 +51,23 @@ public class NavigatorHandlerObjectRename extends NavigatorHandlerObjectBase {
             IStructuredSelection structSelection = (IStructuredSelection) selection;
             Object element = structSelection.getFirstElement();
             if (element instanceof DBNNode) {
-                renameNode(HandlerUtil.getActiveWorkbenchWindow(event), (DBNNode) element, null);
+                renameNode(
+                    HandlerUtil.getActiveWorkbenchWindow(event),
+                    HandlerUtil.getActiveShell(event),
+                    (DBNNode) element, null);
             }
         }
         return null;
     }
 
-    public static boolean renameNode(IWorkbenchWindow workbenchWindow, final DBNNode node, String newName)
+    public static boolean renameNode(IWorkbenchWindow workbenchWindow, Shell shell, final DBNNode node, String newName)
     {
         String oldName = node instanceof DBNDatabaseNode ? ((DBNDatabaseNode) node).getPlainNodeName(true, false) : node.getNodeName();
         if (oldName == null) {
             oldName = "?";
         }
         if (newName == null) {
-            newName = EnterNameDialog.chooseName(workbenchWindow.getShell(), "Rename " + node.getNodeType(), oldName);
+            newName = EnterNameDialog.chooseName(shell, "Rename " + node.getNodeType(), oldName);
         }
         if (CommonUtils.isEmpty(newName) || newName.equals(oldName)) {
             return false;
@@ -81,7 +86,7 @@ public class NavigatorHandlerObjectRename extends NavigatorHandlerObjectBase {
             return renameDatabaseObject(
                 workbenchWindow,
                 (DBNDatabaseNode) node,
-                newName);
+                CommonUtils.toString(UIUtils.normalizePropertyValue(newName)));
         }
         return false;
     }

@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,11 +23,14 @@ import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
 import org.jkiss.dbeaver.Log;
 import org.jkiss.dbeaver.model.DBPDataSourceContainer;
+import org.jkiss.dbeaver.model.DBPDataSourcePermission;
 import org.jkiss.dbeaver.model.app.DBPRegistryListener;
-import org.jkiss.dbeaver.model.connection.DBPConnectionType;
-import org.jkiss.dbeaver.model.connection.DBPDataSourceProviderRegistry;
-import org.jkiss.dbeaver.model.connection.DBPEditorContribution;
+import org.jkiss.dbeaver.model.connection.*;
+import org.jkiss.dbeaver.model.impl.preferences.SimplePreferenceStore;
+import org.jkiss.dbeaver.model.preferences.DBPPreferenceListener;
+import org.jkiss.dbeaver.model.preferences.DBPPreferenceStore;
 import org.jkiss.dbeaver.registry.driver.DriverDescriptor;
+import org.jkiss.dbeaver.registry.driver.DriverDescriptorSerializerLegacy;
 import org.jkiss.dbeaver.runtime.DBWorkbench;
 import org.jkiss.dbeaver.utils.GeneralUtils;
 import org.jkiss.utils.CommonUtils;
@@ -40,6 +43,7 @@ import org.xml.sax.Attributes;
 import java.io.*;
 import java.net.URL;
 import java.util.*;
+import java.util.stream.Collectors;
 
 //import org.eclipse.ui.PlatformUI;
 //import org.eclipse.ui.activities.IActivityManager;
@@ -62,13 +66,34 @@ public class DataSourceProviderRegistry implements DBPDataSourceProviderRegistry
     private final List<DataSourceProviderDescriptor> dataSourceProviders = new ArrayList<>();
     private final List<DBPRegistryListener> registryListeners = new ArrayList<>();
     private final Map<String, DBPConnectionType> connectionTypes = new LinkedHashMap<>();
-    private final Map<String, ExternalResourceDescriptor> resourceContributions = new HashMap<>();
+    private final Map<String, ExternalResourceDescriptor> resourceContributions = new LinkedHashMap<>();
 
     private final List<EditorContributionDescriptor> editorContributors = new ArrayList<>();
     private final Map<String, List<EditorContributionDescriptor>> contributionCategoryMap = new HashMap<>();
 
+    private final Map<String, DataSourceAuthModelDescriptor> authModels = new LinkedHashMap<>();
+    private final List<DataSourceConfigurationStorageDescriptor> dataSourceConfigurationStorageDescriptors = new ArrayList<>();
+
+    private final DBPPreferenceStore globalDataSourcePreferenceStore;
+
     private DataSourceProviderRegistry()
     {
+        globalDataSourcePreferenceStore = new SimplePreferenceStore() {
+            @Override
+            public void addPropertyChangeListener(DBPPreferenceListener listener) {
+                super.addPropertyChangeListener(listener);
+            }
+
+            @Override
+            public void removePropertyChangeListener(DBPPreferenceListener listener) {
+                super.removePropertyChangeListener(listener);
+            }
+
+            @Override
+            public void save() throws IOException {
+                // do nothing
+            }
+        };
     }
 
     public void loadExtensions(IExtensionRegistry registry)
@@ -129,10 +154,25 @@ public class DataSourceProviderRegistry implements DBPDataSourceProviderRegistry
             });
         }
 
-        // Load drivers
-        File driversConfig = DBWorkbench.getPlatform().getConfigurationFile(RegistryConstants.DRIVERS_FILE_NAME);
-        if (driversConfig.exists()) {
-            loadDrivers(driversConfig);
+        {
+            // Try to load initial drivers config
+            String providedDriversConfig = System.getProperty("dbeaver.drivers.configuration-file");
+            if (!CommonUtils.isEmpty(providedDriversConfig)) {
+                File configFile = new File(providedDriversConfig);
+                if (configFile.exists()) {
+                    log.debug("Loading provided drivers configuration from '" + configFile.getAbsolutePath() + "'");
+                    loadDrivers(configFile, true);
+                } else {
+                    log.debug("Provided drivers configuration file '" + configFile.getAbsolutePath() + "' doesn't exist");
+                }
+            }
+
+            // Load user drivers
+            File driversConfig = DBWorkbench.getPlatform().getConfigurationFile(RegistryConstants.DRIVERS_FILE_NAME);
+            if (driversConfig.exists()) {
+                log.debug("Loading user drivers configuration from '" + driversConfig.getAbsolutePath() + "'");
+                loadDrivers(driversConfig, false);
+            }
         }
 
         // Resolve all driver replacements
@@ -152,7 +192,7 @@ public class DataSourceProviderRegistry implements DBPDataSourceProviderRegistry
 
         int driverCount = 0, customDriverCount = 0;
         for (DataSourceProviderDescriptor pd : dataSourceProviders) {
-            for (DriverDescriptor dd : pd.getDrivers()) {
+            for (DBPDriver dd : pd.getDrivers()) {
                 if (!dd.isDisabled() && dd.getReplacedBy() == null) {
                     driverCount++;
                     if (dd.isCustom()) customDriverCount++;
@@ -186,6 +226,23 @@ public class DataSourceProviderRegistry implements DBPDataSourceProviderRegistry
             }
         }
 
+        // Load external resources information
+        {
+            IConfigurationElement[] extElements = registry.getConfigurationElementsFor(DataSourceAuthModelDescriptor.EXTENSION_ID);
+            for (IConfigurationElement ext : extElements) {
+                DataSourceAuthModelDescriptor descriptor = new DataSourceAuthModelDescriptor(ext);
+                authModels.put(descriptor.getId(), descriptor);
+            }
+        }
+
+        // Load DS configuration configuration storages
+        {
+            IConfigurationElement[] extElements = registry.getConfigurationElementsFor(DataSourceConfigurationStorageDescriptor.EXTENSION_ID);
+            for (IConfigurationElement ext : extElements) {
+                DataSourceConfigurationStorageDescriptor descriptor = new DataSourceConfigurationStorageDescriptor(ext);
+                dataSourceConfigurationStorageDescriptors.add(descriptor);
+            }
+        }
     }
 
     public void dispose()
@@ -201,6 +258,7 @@ public class DataSourceProviderRegistry implements DBPDataSourceProviderRegistry
         }
         this.dataSourceProviders.clear();
         this.resourceContributions.clear();
+        this.dataSourceConfigurationStorageDescriptors.clear();
     }
 
     @Override
@@ -215,15 +273,22 @@ public class DataSourceProviderRegistry implements DBPDataSourceProviderRegistry
         return null;
     }
 
+    @Override
+    public DBPDataSourceProviderDescriptor makeFakeProvider(String providerID) {
+        DataSourceProviderDescriptor provider = new DataSourceProviderDescriptor(this, providerID);
+        dataSourceProviders.add(provider);
+        return provider;
+    }
+
     public List<DataSourceProviderDescriptor> getDataSourceProviders()
     {
         return dataSourceProviders;
     }
 
-    public List<DataSourceProviderDescriptor> getEnabledDataSourceProviders()
+    public List<DBPDataSourceProviderDescriptor> getEnabledDataSourceProviders()
     {
         //IActivityManager activityManager = PlatformUI.getWorkbench().getActivitySupport().getActivityManager();
-        List<DataSourceProviderDescriptor> enabled = new ArrayList<>(dataSourceProviders);
+        List<DBPDataSourceProviderDescriptor> enabled = new ArrayList<>(dataSourceProviders);
 /*
         enabled.removeIf(p ->
             !activityManager.getIdentifier(p.getFullIdentifier()).isEnabled()
@@ -233,26 +298,44 @@ public class DataSourceProviderRegistry implements DBPDataSourceProviderRegistry
     }
 
     @Nullable
-    public DriverDescriptor findDriver(@NotNull String driverIdOrName) {
-        // Try to find by ID
-        for (DataSourceProviderDescriptor pd : dataSourceProviders) {
-            DriverDescriptor driver = pd.getDriver(driverIdOrName);
-            if (driver != null) {
-                return driver;
-            }
-        }
-        // Try to find by name
-        for (DataSourceProviderDescriptor pd : dataSourceProviders) {
-            for (DriverDescriptor driver : pd.getDrivers()) {
-                if (driver.getName().equalsIgnoreCase(driverIdOrName)) {
-                    while (driver.getReplacedBy() != null) {
-                        driver = driver.getReplacedBy();
-                    }
-                    return driver;
+    public DBPDriver findDriver(@NotNull String driverIdOrName) {
+        DBPDriver driver = null;
+        if (driverIdOrName.contains(":")) {
+            String[] driverPath = driverIdOrName.split(":");
+            if (driverPath.length == 2) {
+                DataSourceProviderDescriptor dsProvider = getDataSourceProvider(driverPath[0]);
+                if (dsProvider != null) {
+                    driver = dsProvider.getDriver(driverPath[1]);
                 }
             }
         }
-        return null;
+        if (driver == null) {
+            // Try to find by ID
+            for (DataSourceProviderDescriptor pd : dataSourceProviders) {
+                driver = pd.getDriver(driverIdOrName);
+                if (driver != null) {
+                    break;
+                }
+            }
+        }
+        if (driver == null) {
+            // Try to find by name
+            for (DataSourceProviderDescriptor pd : dataSourceProviders) {
+                for (DBPDriver d : pd.getDrivers()) {
+                    if (d.getName().equalsIgnoreCase(driverIdOrName)) {
+                        driver = d;
+                    }
+                }
+            }
+        }
+        // Find replacement
+        if (driver != null) {
+            while (driver.getReplacedBy() != null) {
+                driver = driver.getReplacedBy();
+            }
+        }
+
+        return driver;
     }
 
     //////////////////////////////////////////////
@@ -273,15 +356,20 @@ public class DataSourceProviderRegistry implements DBPDataSourceProviderRegistry
         return ecCopy.toArray(new DBPEditorContribution[0]);
     }
 
+    @Override
+    public DBPPreferenceStore getGlobalDataSourcePreferenceStore() {
+        return globalDataSourcePreferenceStore;
+    }
+
     //////////////////////////////////////////////
     // Persistence
 
-    private void loadDrivers(File driversConfig)
+    private void loadDrivers(File driversConfig, boolean provided)
     {
         if (driversConfig.exists()) {
             try {
                 try (InputStream is = new FileInputStream(driversConfig)) {
-                    new SAXReader(is).parse(new DriverDescriptor.DriversParser());
+                    new SAXReader(is).parse(new DriverDescriptorSerializerLegacy.DriversParser(provided));
                 } catch (XMLException ex) {
                     log.warn("Drivers config parse error", ex);
                 }
@@ -300,11 +388,14 @@ public class DataSourceProviderRegistry implements DBPDataSourceProviderRegistry
             xml.setButify(true);
             xml.startElement(RegistryConstants.TAG_DRIVERS);
             for (DataSourceProviderDescriptor provider : this.dataSourceProviders) {
+                if (provider.isTemporary()) {
+                    continue;
+                }
                 xml.startElement(RegistryConstants.TAG_PROVIDER);
                 xml.addAttribute(RegistryConstants.ATTR_ID, provider.getId());
-                for (DriverDescriptor driver : provider.getDrivers()) {
-                    if (driver.isModified()) {
-                        driver.serialize(xml, false);
+                for (DBPDriver driver : provider.getDrivers()) {
+                    if (driver instanceof DriverDescriptor && ((DriverDescriptor) driver).isModified()) {
+                        ((DriverDescriptor) driver).serialize(xml, false);
                     }
                 }
                 xml.endElement();
@@ -331,6 +422,9 @@ public class DataSourceProviderRegistry implements DBPDataSourceProviderRegistry
             log.warn("Error parsing connection types", ex);
         }
     }
+
+    //////////////////////////////////////////////
+    // Connection types
 
     public Collection<DBPConnectionType> getConnectionTypes()
     {
@@ -378,6 +472,12 @@ public class DataSourceProviderRegistry implements DBPDataSourceProviderRegistry
                 xml.addAttribute(RegistryConstants.ATTR_DESCRIPTION, CommonUtils.toString(connectionType.getDescription()));
                 xml.addAttribute(RegistryConstants.ATTR_AUTOCOMMIT, connectionType.isAutocommit());
                 xml.addAttribute(RegistryConstants.ATTR_CONFIRM_EXECUTE, connectionType.isConfirmExecute());
+                xml.addAttribute(RegistryConstants.ATTR_CONFIRM_DATA_CHANGE, connectionType.isConfirmDataChange());
+                List<DBPDataSourcePermission> modifyPermission = connectionType.getModifyPermission();
+                if (modifyPermission != null) {
+                    xml.addAttribute("modifyPermission",
+                        modifyPermission.stream().map(DBPDataSourcePermission::name).collect(Collectors.joining(",")));
+                }
                 xml.endElement();
             }
             xml.endElement();
@@ -388,6 +488,44 @@ public class DataSourceProviderRegistry implements DBPDataSourceProviderRegistry
             log.warn("Error saving drivers", ex);
         }
     }
+
+    //////////////////////////////////////////////
+    // Configuration storages
+
+    public List<DataSourceConfigurationStorageDescriptor> getDataSourceConfigurationStorages() {
+        return dataSourceConfigurationStorageDescriptors;
+    }
+
+    //////////////////////////////////////////////
+    // Auth models
+
+    public DataSourceAuthModelDescriptor getAuthModel(String id) {
+        return authModels.get(id);
+    }
+
+    public List<DBPAuthModelDescriptor> getAllAuthModels() {
+        return new ArrayList<>(authModels.values());
+    }
+
+    @Override
+    public List<? extends DBPAuthModelDescriptor> getApplicableAuthModels(DBPDriver driver) {
+        List<DataSourceAuthModelDescriptor> models = new ArrayList<>();
+        List<String> replaced = new ArrayList<>();
+        for (DataSourceAuthModelDescriptor amd : authModels.values()) {
+            if (amd.appliesTo(driver)) {
+                models.add(amd);
+                replaced.addAll(amd.getReplaces());
+            }
+        }
+        if (!replaced.isEmpty()) {
+            models.removeIf(
+                dataSourceAuthModelDescriptor -> replaced.contains(dataSourceAuthModelDescriptor.getId()));
+        }
+        return models;
+    }
+
+    //////////////////////////////////////////////
+    // Driver resources
 
     /**
      * Searches for resource within external resources provided by plugins
@@ -441,7 +579,16 @@ public class DataSourceProviderRegistry implements DBPDataSourceProviderRegistry
                     atts.getValue(RegistryConstants.ATTR_COLOR),
                     atts.getValue(RegistryConstants.ATTR_DESCRIPTION),
                     CommonUtils.getBoolean(atts.getValue(RegistryConstants.ATTR_AUTOCOMMIT)),
-                    CommonUtils.getBoolean(atts.getValue(RegistryConstants.ATTR_CONFIRM_EXECUTE)));
+                    CommonUtils.getBoolean(atts.getValue(RegistryConstants.ATTR_CONFIRM_EXECUTE)),
+                    CommonUtils.getBoolean(atts.getValue(RegistryConstants.ATTR_CONFIRM_DATA_CHANGE)));
+                String modifyPermissionList = atts.getValue("modifyPermission");
+                if (!CommonUtils.isEmpty(modifyPermissionList)) {
+                    List<DBPDataSourcePermission> permList = new ArrayList<>();
+                    for (String permItem : modifyPermissionList.split(",")) {
+                        permList.add(CommonUtils.valueOf(DBPDataSourcePermission.class, permItem, DBPDataSourcePermission.PERMISSION_EDIT_DATA));
+                    }
+                    connectionType.setModifyPermissions(permList);
+                }
                 connectionTypes.put(connectionType.getId(), connectionType);
             }
         }

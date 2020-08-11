@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,25 +18,59 @@
 package org.jkiss.dbeaver.runtime.ui;
 
 import org.eclipse.core.resources.IResource;
+import org.jkiss.code.NotNull;
 import org.jkiss.code.Nullable;
 import org.jkiss.dbeaver.DBException;
 import org.jkiss.dbeaver.model.DBPContextProvider;
 import org.jkiss.dbeaver.model.DBPDataSourceContainer;
 import org.jkiss.dbeaver.model.DBPImage;
 import org.jkiss.dbeaver.model.exec.DBCExecutionContext;
+import org.jkiss.dbeaver.model.preferences.DBPPropertyDescriptor;
+import org.jkiss.dbeaver.model.runtime.DBRCreator;
+import org.jkiss.dbeaver.model.struct.DBSObject;
+
+import java.util.Map;
 
 /**
  * SQL Service
  */
 public interface UIServiceSQL {
 
-    int openSQLViewer(@Nullable DBCExecutionContext context, String title, @Nullable DBPImage image, String text, boolean showSaveButton);
+    /**
+     * Shows SQL preview dialog
+     *
+     * @param showSaveButton shows Save button
+     * @param showOpenEditorButton shows Open in editor button
+     * @return IDialogConstants.*_ID
+     */
+    int openSQLViewer(
+        @Nullable DBCExecutionContext context,
+        String title,
+        @Nullable DBPImage image,
+        String text,
+        boolean showSaveButton,
+        boolean showOpenEditorButton);
+
+    String openSQLEditor(
+        @Nullable DBPContextProvider contextProvider,
+        String title,
+        @Nullable DBPImage image,
+        String text);
+
+    int openGeneratedScriptViewer(
+        @Nullable DBCExecutionContext context,
+        String title,
+        @Nullable DBPImage image,
+        @NotNull DBRCreator<String, Map<String, Object>> scriptGenerator,
+        @NotNull DBPPropertyDescriptor[] properties,
+        boolean showSaveButton);
 
     /**
      * @return IEditorPart
      */
     Object openSQLConsole(
-        DBPDataSourceContainer dataSourceContainer,
+        @NotNull DBPDataSourceContainer dataSourceContainer,
+        @Nullable DBCExecutionContext executionContext,
         String name,
         String sqlText);
 
@@ -52,10 +86,16 @@ public interface UIServiceSQL {
 
     void setSQLPanelText(Object panelObject, String sqlText);
 
-    Object openNewScript(DBPDataSourceContainer dataSource);
+    String getSQLPanelText(Object panelObject);
 
-    Object openRecentScript(DBPDataSourceContainer dataSource);
+    void disposeSQLPanel(Object panelObject);
+
+    Object openNewScript(DBSObject forObject);
+
+    Object openRecentScript(DBSObject forObject);
 
     void openResource(IResource element);
+
+    boolean useIsolatedConnections(DBPContextProvider contextProvider);
 
 }

@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,13 +24,14 @@ import org.eclipse.gef.requests.CreationFactory;
 import org.eclipse.jface.resource.ImageDescriptor;
 import org.jkiss.dbeaver.DBException;
 import org.jkiss.dbeaver.Log;
-import org.jkiss.dbeaver.ext.erd.ERDActivator;
 import org.jkiss.dbeaver.ext.erd.ERDMessages;
 import org.jkiss.dbeaver.ext.erd.editor.ERDAttributeVisibility;
 import org.jkiss.dbeaver.ext.erd.editor.ERDEditPartFactory;
+import org.jkiss.dbeaver.model.DBIcon;
 import org.jkiss.dbeaver.model.DBUtils;
 import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
 import org.jkiss.dbeaver.model.struct.*;
+import org.jkiss.dbeaver.model.virtual.DBVUtils;
 import org.jkiss.dbeaver.ui.DBeaverIcons;
 import org.jkiss.dbeaver.ui.UIIcon;
 import org.jkiss.utils.CommonUtils;
@@ -45,8 +46,9 @@ import java.util.Set;
  */
 public class ERDDecoratorDefault implements ERDDecorator {
 
-    public static final ImageDescriptor CONNECT_IMAGE = ERDActivator.getImageDescriptor("icons/connect.png");
-    public static final ImageDescriptor NOTE_IMAGE = ERDActivator.getImageDescriptor("icons/note.png");
+    public static final ImageDescriptor CONNECT_IMAGE = DBeaverIcons.getImageDescriptor(DBIcon.TREE_ASSOCIATION);
+    public static final ImageDescriptor FOREIGN_KEY_IMAGE = DBeaverIcons.getImageDescriptor(DBIcon.TREE_FOREIGN_KEY);
+    public static final ImageDescriptor NOTE_IMAGE = DBeaverIcons.getImageDescriptor(DBIcon.TYPE_TEXT);
 
     private static final Log log = Log.getLog(ERDDecoratorDefault.class);
 
@@ -80,42 +82,45 @@ public class ERDDecoratorDefault implements ERDDecorator {
 
     @Override
     public void fillPalette(PaletteRoot paletteRoot, boolean readOnly) {
-        {
-            // a group of default control tools
-            PaletteDrawer controls = createToolsDrawer(paletteRoot);
+        // a group of default control tools
+        PaletteDrawer controls = createToolsDrawer(paletteRoot);
 
-            // the selection tool
-            ToolEntry selectionTool = new SelectionToolEntry();
-            controls.add(selectionTool);
+        // the selection tool
+        ToolEntry selectionTool = new SelectionToolEntry();
+        controls.add(selectionTool);
 
-            // use selection tool as default entry
-            paletteRoot.setDefaultEntry(selectionTool);
+        // use selection tool as default entry
+        paletteRoot.setDefaultEntry(selectionTool);
 
-            if (!readOnly) {
-                // separator
-                PaletteSeparator separator = new PaletteSeparator("tools");
-                separator.setUserModificationPermission(PaletteEntry.PERMISSION_NO_MODIFICATION);
-                controls.add(separator);
+        if (!readOnly) {
+            // separator
+            PaletteSeparator separator = new PaletteSeparator("tools");
+            separator.setUserModificationPermission(PaletteEntry.PERMISSION_NO_MODIFICATION);
+            controls.add(separator);
 
-                controls.add(new ConnectionCreationToolEntry(ERDMessages.erd_tool_create_connection, ERDMessages.erd_tool_create_connection_tip, null, CONNECT_IMAGE, CONNECT_IMAGE));
-                controls.add(new CreationToolEntry(
-                    ERDMessages.erd_tool_create_note,
-                    ERDMessages.erd_tool_create_note_tip,
-                    new CreationFactory() {
-                        @Override
-                        public Object getNewObject()
-                        {
-                            return new ERDNote(ERDMessages.erd_tool_create_default);
-                        }
-                        @Override
-                        public Object getObjectType()
-                        {
-                            return RequestConstants.REQ_CREATE;
-                        }
-                    },
-                    NOTE_IMAGE,
-                    NOTE_IMAGE));
-            }
+            controls.add(new ConnectionCreationToolEntry(
+                ERDMessages.erd_tool_create_connection,
+                ERDMessages.erd_tool_create_connection_tip,
+                null,
+                CONNECT_IMAGE,
+                CONNECT_IMAGE));
+            controls.add(new CreationToolEntry(
+                ERDMessages.erd_tool_create_note,
+                ERDMessages.erd_tool_create_note_tip,
+                new CreationFactory() {
+                    @Override
+                    public Object getNewObject()
+                    {
+                        return new ERDNote(ERDMessages.erd_tool_create_default);
+                    }
+                    @Override
+                    public Object getObjectType()
+                    {
+                        return RequestConstants.REQ_CREATE;
+                    }
+                },
+                NOTE_IMAGE,
+                NOTE_IMAGE));
         }
     }
 
@@ -142,30 +147,26 @@ public class ERDDecoratorDefault implements ERDDecorator {
             }
         }
         if (attributeVisibility != ERDAttributeVisibility.NONE) {
-            Set<DBSEntityAttribute> keyColumns = null;
-            if (attributeVisibility == ERDAttributeVisibility.KEYS) {
-                keyColumns = new HashSet<>();
-                try {
-                    for (DBSEntityAssociation assoc : CommonUtils.safeCollection(entity.getAssociations(monitor))) {
-                        if (assoc instanceof DBSEntityReferrer) {
-                            keyColumns.addAll(DBUtils.getEntityAttributes(monitor, (DBSEntityReferrer) assoc));
-                        }
+            Set<DBSEntityAttribute> keyColumns = new HashSet<>();
+            try {
+                for (DBSEntityAssociation assoc : DBVUtils.getAllAssociations(monitor, entity)) {
+                    if (assoc instanceof DBSEntityReferrer) {
+                        keyColumns.addAll(DBUtils.getEntityAttributes(monitor, (DBSEntityReferrer) assoc));
                     }
-                    for (DBSEntityConstraint constraint : CommonUtils.safeCollection(entity.getConstraints(monitor))) {
-                        if (constraint instanceof DBSEntityReferrer) {
-                            keyColumns.addAll(DBUtils.getEntityAttributes(monitor, (DBSEntityReferrer) constraint));
-                        }
-                    }
-                } catch (DBException e) {
-                    log.warn(e);
                 }
+                for (DBSEntityConstraint constraint : DBVUtils.getAllConstraints(monitor, entity)) {
+                    if (constraint instanceof DBSEntityReferrer) {
+                        keyColumns.addAll(DBUtils.getEntityAttributes(monitor, (DBSEntityReferrer) constraint));
+                    }
+                }
+            } catch (DBException e) {
+                log.warn(e);
             }
+
             Collection<? extends DBSEntityAttribute> idColumns = null;
             try {
                 idColumns = ERDUtils.getBestTableIdentifier(monitor, entity);
-                if (keyColumns != null) {
-                    keyColumns.addAll(idColumns);
-                }
+                keyColumns.addAll(idColumns);
             } catch (DBException e) {
                 log.error("Error reading table identifier", e);
             }
@@ -177,7 +178,9 @@ public class ERDDecoratorDefault implements ERDDecorator {
                     entity.getDataSource().getContainer().getObjectFilter(firstAttr.getClass(), entity, false);
                 if (!CommonUtils.isEmpty(attributes)) {
                     for (DBSEntityAttribute attribute : attributes) {
-                        if (!isAttributeVisible(erdEntity, attribute)) {
+                        boolean isInIdentifier = idColumns != null && idColumns.contains(attribute);
+                        if (!keyColumns.contains(attribute) && !isAttributeVisible(erdEntity, attribute)) {
+                            // Show all visible attributes and all key attributes
                             continue;
                         }
                         if (columnFilter != null && !columnFilter.matches(attribute.getName())) {
@@ -186,7 +189,7 @@ public class ERDDecoratorDefault implements ERDDecorator {
 
                         switch (attributeVisibility) {
                             case PRIMARY:
-                                if (idColumns == null || !idColumns.contains(attribute)) {
+                                if (!isInIdentifier) {
                                     continue;
                                 }
                                 break;

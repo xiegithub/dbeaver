@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,11 +18,9 @@ package org.jkiss.dbeaver.ui.actions;
 
 import org.eclipse.core.expressions.PropertyTester;
 import org.eclipse.jface.action.IContributionItem;
-import org.eclipse.jface.viewers.IStructuredSelection;
 import org.eclipse.swt.widgets.Display;
-import org.eclipse.ui.IWorkbenchPart;
-import org.jkiss.dbeaver.model.DBPDataSource;
 import org.jkiss.dbeaver.model.DBPOrderedObject;
+import org.jkiss.dbeaver.model.DBUtils;
 import org.jkiss.dbeaver.model.app.DBPResourceHandler;
 import org.jkiss.dbeaver.model.edit.DBEObjectMaker;
 import org.jkiss.dbeaver.model.edit.DBEObjectManager;
@@ -33,12 +31,8 @@ import org.jkiss.dbeaver.model.struct.DBSObject;
 import org.jkiss.dbeaver.model.struct.DBSObjectFilter;
 import org.jkiss.dbeaver.model.struct.DBSWrapper;
 import org.jkiss.dbeaver.registry.ObjectManagerRegistry;
-import org.jkiss.dbeaver.tools.registry.ToolsRegistry;
 import org.jkiss.dbeaver.ui.ActionUtils;
-import org.jkiss.dbeaver.ui.navigator.NavigatorUtils;
 import org.jkiss.dbeaver.ui.navigator.actions.NavigatorHandlerObjectCreateNew;
-import org.jkiss.dbeaver.utils.RuntimeUtils;
-import org.jkiss.utils.CommonUtils;
 
 import java.util.List;
 
@@ -91,6 +85,18 @@ public class ObjectPropertyTester extends PropertyTester
                 return canCreateObject(node, false);
             }
             case PROP_CAN_PASTE: {
+                // We cannot interact with clipboard in property testers (#6489).
+                // It breaks context menu (and maybe something else) omn some OSes.
+/*
+                Clipboard clipboard = new Clipboard(display);
+                try {
+                    if (clipboard.getContents(TreeNodeTransfer.getInstance()) == null) {
+                        return false;
+                    }
+                } finally {
+                    clipboard.dispose();
+                }
+*/
                 if (node instanceof DBNResource) {
                     return property.equals(PROP_CAN_PASTE);
                 }
@@ -120,9 +126,14 @@ public class ObjectPropertyTester extends PropertyTester
                 if (node instanceof DBNDataSource || node instanceof DBNLocalFolder) {
                     return true;
                 }
+
+                if (DBNUtils.isReadOnly(node)) {
+                    return false;
+                }
+
                 if (node instanceof DBSWrapper) {
                     DBSObject object = ((DBSWrapper) node).getObject();
-                    if (object == null || isReadOnly(object) || !(node.getParentNode() instanceof DBNContainer)) {
+                    if (object == null || DBUtils.isReadOnly(object) || !(node.getParentNode() instanceof DBNContainer)) {
                         return false;
                     }
                     DBEObjectMaker objectMaker = getObjectManager(object.getClass(), DBEObjectMaker.class);
@@ -139,10 +150,13 @@ public class ObjectPropertyTester extends PropertyTester
                     return true;
                 }
                 if (node instanceof DBNDatabaseNode) {
+                    if (DBNUtils.isReadOnly(node)) {
+                        return false;
+                    }
                     DBSObject object = ((DBNDatabaseNode) node).getObject();
                     return
                         object != null &&
-                            !isReadOnly(object) &&
+                            !DBUtils.isReadOnly(object) &&
                             object.isPersisted() &&
                             node.getParentNode() instanceof DBNContainer &&
                             getObjectManager(object.getClass(), DBEObjectRenamer.class) != null;
@@ -152,6 +166,9 @@ public class ObjectPropertyTester extends PropertyTester
             case PROP_CAN_MOVE_UP:
             case PROP_CAN_MOVE_DOWN: {
                 if (node instanceof DBNDatabaseNode) {
+                    if (DBNUtils.isReadOnly(node)) {
+                        return false;
+                    }
                     DBSObject object = ((DBNDatabaseNode) node).getObject();
                     if (object instanceof DBPOrderedObject) {
                         DBEObjectReorderer objectReorderer = getObjectManager(object.getClass(), DBEObjectReorderer.class);
@@ -195,19 +212,20 @@ public class ObjectPropertyTester extends PropertyTester
                 }
                 break;
             }
-            case PROP_HAS_TOOLS: {
-                IStructuredSelection structuredSelection = NavigatorUtils.getSelectionFromPart((IWorkbenchPart)receiver);
-                if (structuredSelection == null || structuredSelection.isEmpty()) {
-                    return false;
-                }
-                DBSObject object = RuntimeUtils.getObjectAdapter(structuredSelection.getFirstElement(), DBSObject.class);
-                return object != null && !CommonUtils.isEmpty(ToolsRegistry.getInstance().getTools(structuredSelection));
-            }
         }
         return false;
     }
 
     public static boolean canCreateObject(DBNNode node, Boolean onlySingle) {
+        if (node instanceof DBNDatabaseNode) {
+            if (((DBNDatabaseNode)node).isVirtual()) {
+                // Can't create virtual objects
+                return false;
+            }
+            if (isMetadataChangeDisabled(((DBNDatabaseNode)node))) {
+                return false;
+            }
+        }
         if (onlySingle == null) {
             // Just try to find first create handler
             if (node instanceof DBNDataSource) {
@@ -229,8 +247,11 @@ public class ObjectPropertyTester extends PropertyTester
             } else {
                 return false;
             }
+            if (DBNUtils.isReadOnly(node)) {
+                return false;
+            }
 
-            if (node instanceof DBSWrapper && isReadOnly(((DBSWrapper) node).getObject())) {
+            if (node instanceof DBSWrapper && DBUtils.isReadOnly(((DBSWrapper) node).getObject())) {
                 return false;
             }
             if (objectType == null) {
@@ -240,11 +261,12 @@ public class ObjectPropertyTester extends PropertyTester
             if (objectMaker == null) {
                 return false;
             }
-            if (!objectMaker.canCreateObject(container.getValueObject())) {
-                return false;
-            }
-            return true;
+            return objectMaker.canCreateObject(container.getValueObject());
         }
+        if (DBNUtils.isReadOnly(node)) {
+            return false;
+        }
+
         // Check whether only single object type can be created or multiple ones
         List<IContributionItem> createItems = NavigatorHandlerObjectCreateNew.fillCreateMenuItems(null, node);
 
@@ -255,13 +277,9 @@ public class ObjectPropertyTester extends PropertyTester
         }
     }
 
-    public static boolean isReadOnly(DBSObject object)
-    {
-        if (object == null) {
-            return true;
-        }
-        DBPDataSource dataSource = object.getDataSource();
-        return dataSource == null || dataSource.getContainer().isConnectionReadOnly();
+    public static boolean isMetadataChangeDisabled(DBNDatabaseNode node) {
+        DBNBrowseSettings navSettings = node.getDataSourceContainer().getNavigatorSettings();
+        return navSettings.isHideFolders() || navSettings.isShowOnlyEntities();
     }
 
     private static <T extends DBEObjectManager> T getObjectManager(Class<?> objectType, Class<T> managerType)

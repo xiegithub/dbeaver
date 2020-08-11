@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,7 +18,7 @@
 package org.jkiss.dbeaver.ext.sqlite;
 
 import org.jkiss.dbeaver.Log;
-import org.jkiss.dbeaver.ext.generic.model.GenericTable;
+import org.jkiss.dbeaver.ext.generic.model.GenericTableBase;
 import org.jkiss.dbeaver.ext.sqlite.model.SQLiteObjectType;
 import org.jkiss.dbeaver.model.DBUtils;
 import org.jkiss.dbeaver.model.exec.jdbc.JDBCPreparedStatement;
@@ -35,8 +35,8 @@ public class SQLiteUtils {
     private static final Log log = Log.getLog(SQLiteUtils.class);
 
 
-    public static String readMasterDefinition(DBRProgressMonitor monitor, DBSObject sourceObject, SQLiteObjectType objectType, String sourceObjectName, GenericTable table) {
-        try (JDBCSession session = DBUtils.openMetaSession(monitor, sourceObject, "Load PostgreSQL description")) {
+    public static String readMasterDefinition(DBRProgressMonitor monitor, DBSObject sourceObject, SQLiteObjectType objectType, String sourceObjectName, GenericTableBase table) {
+        try (JDBCSession session = DBUtils.openMetaSession(monitor, sourceObject, "Load SQLite description")) {
             try (JDBCPreparedStatement dbStat = session.prepareStatement(
                 "SELECT sql FROM sqlite_master WHERE type=? AND tbl_name=?" + (sourceObjectName != null ? " AND name=?" : "") + "\n" +
                     "UNION ALL\n" +
@@ -62,7 +62,9 @@ public class SQLiteUtils {
                             sql.append(";\n");
                         }
                     }
-                    return sql.toString();
+                    String ddl = sql.toString();
+                    //ddl = ddl.replaceAll("(?i)CREATE VIEW", "CREATE OR REPLACE VIEW");
+                    return ddl;
                 }
             }
         } catch (Exception e) {

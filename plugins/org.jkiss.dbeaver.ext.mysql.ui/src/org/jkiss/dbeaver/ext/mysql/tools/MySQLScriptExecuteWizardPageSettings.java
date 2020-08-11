@@ -1,7 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
- * Copyright (C) 2011-2012 Eugene Fradkin (eugene.fradkin@gmail.com)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,11 +23,12 @@ import org.eclipse.swt.events.SelectionAdapter;
 import org.eclipse.swt.events.SelectionEvent;
 import org.eclipse.swt.layout.GridData;
 import org.eclipse.swt.widgets.*;
-import org.jkiss.dbeaver.ext.mysql.MySQLMessages;
+import org.jkiss.dbeaver.ext.mysql.tasks.MySQLScriptExecuteSettings;
+import org.jkiss.dbeaver.ext.mysql.ui.internal.MySQLUIMessages;
 import org.jkiss.dbeaver.model.DBIcon;
 import org.jkiss.dbeaver.ui.DBeaverIcons;
-import org.jkiss.dbeaver.ui.dialogs.DialogUtils;
 import org.jkiss.dbeaver.ui.UIUtils;
+import org.jkiss.dbeaver.ui.dialogs.DialogUtils;
 import org.jkiss.utils.CommonUtils;
 
 import java.io.File;
@@ -39,23 +39,23 @@ public class MySQLScriptExecuteWizardPageSettings extends MySQLWizardPageSetting
     private Text inputFileText;
     private Combo logLevelCombo;
 
-    public MySQLScriptExecuteWizardPageSettings(MySQLScriptExecuteWizard wizard)
+    MySQLScriptExecuteWizardPageSettings(MySQLScriptExecuteWizard wizard)
     {
         super(wizard, wizard.isImport() ?
-                MySQLMessages.tools_script_execute_wizard_page_settings_import_configuration :
-                MySQLMessages.tools_script_execute_wizard_page_settings_script_configuration);
+                MySQLUIMessages.tools_script_execute_wizard_page_settings_import_configuration :
+                MySQLUIMessages.tools_script_execute_wizard_page_settings_script_configuration);
         setTitle(wizard.isImport() ?
-                MySQLMessages.tools_script_execute_wizard_page_settings_import_configuration :
-                MySQLMessages.tools_script_execute_wizard_page_settings_script_configuration);
+                MySQLUIMessages.tools_script_execute_wizard_page_settings_import_configuration :
+                MySQLUIMessages.tools_script_execute_wizard_page_settings_script_configuration);
         setDescription(wizard.isImport() ?
-                MySQLMessages.tools_script_execute_wizard_page_settings_set_db_import_settings :
-                MySQLMessages.tools_script_execute_wizard_page_settings_set_script_execution_settings);
+                MySQLUIMessages.tools_script_execute_wizard_page_settings_set_db_import_settings :
+                MySQLUIMessages.tools_script_execute_wizard_page_settings_set_script_execution_settings);
     }
 
     @Override
     public boolean isPageComplete()
     {
-        return super.isPageComplete() && wizard.getInputFile() != null;
+        return super.isPageComplete() && wizard.getSettings().getInputFile() != null;
     }
 
     @Override
@@ -64,9 +64,9 @@ public class MySQLScriptExecuteWizardPageSettings extends MySQLWizardPageSetting
         Composite composite = UIUtils.createPlaceholder(parent, 1);
 
         Group outputGroup = UIUtils.createControlGroup(
-                composite, MySQLMessages.tools_script_execute_wizard_page_settings_group_input, 3, GridData.FILL_HORIZONTAL, 0);
+                composite, MySQLUIMessages.tools_script_execute_wizard_page_settings_group_input, 3, GridData.FILL_HORIZONTAL, 0);
         inputFileText = UIUtils.createLabelText(
-                outputGroup, MySQLMessages.tools_script_execute_wizard_page_settings_label_input_file, "", SWT.BORDER | SWT.READ_ONLY); //$NON-NLS-2$
+                outputGroup, MySQLUIMessages.tools_script_execute_wizard_page_settings_label_input_file, "", SWT.BORDER | SWT.READ_ONLY); //$NON-NLS-2$
         inputFileText.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseUp(MouseEvent e)
@@ -84,15 +84,16 @@ public class MySQLScriptExecuteWizardPageSettings extends MySQLWizardPageSetting
             }
         });
 
-        if (wizard.getInputFile() != null) {
-            inputFileText.setText(wizard.getInputFile().getName());
+        if (wizard.getSettings().getInputFile() != null) {
+            inputFileText.setText(wizard.getSettings().getInputFile());
         }
 
         Group settingsGroup = UIUtils.createControlGroup(
-                composite, MySQLMessages.tools_script_execute_wizard_page_settings_group_settings, 2, GridData.HORIZONTAL_ALIGN_BEGINNING, 0);
+                composite, MySQLUIMessages.tools_script_execute_wizard_page_settings_group_settings, 2, GridData.HORIZONTAL_ALIGN_BEGINNING, 0);
+        settingsGroup.setLayoutData(new GridData(GridData.FILL_HORIZONTAL));
         logLevelCombo = UIUtils.createLabelCombo(
-                settingsGroup, MySQLMessages.tools_script_execute_wizard_page_settings_label_log_level, SWT.DROP_DOWN | SWT.READ_ONLY);
-        for (MySQLScriptExecuteWizard.LogLevel logLevel : MySQLScriptExecuteWizard.LogLevel.values()) {
+                settingsGroup, MySQLUIMessages.tools_script_execute_wizard_page_settings_label_log_level, SWT.DROP_DOWN | SWT.READ_ONLY);
+        for (MySQLScriptExecuteSettings.LogLevel logLevel : MySQLScriptExecuteSettings.LogLevel.values()) {
             logLevelCombo.add(logLevel.name());
         }
         logLevelCombo.select(wizard.getLogLevel().ordinal());
@@ -100,12 +101,14 @@ public class MySQLScriptExecuteWizardPageSettings extends MySQLWizardPageSetting
             @Override
             public void widgetSelected(SelectionEvent e)
             {
-                wizard.setLogLevel(MySQLScriptExecuteWizard.LogLevel.valueOf(logLevelCombo.getText()));
+                wizard.getSettings().setLogLevel(CommonUtils.valueOf(MySQLScriptExecuteSettings.LogLevel.class, logLevelCombo.getText()));
             }
         });
         createExtraArgsInput(settingsGroup);
 
-        createSecurityGroup(composite);
+        Composite extraGroup = UIUtils.createComposite(composite, 2);
+        createSecurityGroup(extraGroup);
+        wizard.createTaskSaveGroup(extraGroup);
 
         setControl(composite);
 
@@ -122,11 +125,20 @@ public class MySQLScriptExecuteWizardPageSettings extends MySQLWizardPageSetting
     }
 
     @Override
+    public void saveState() {
+        super.saveState();
+
+        MySQLScriptExecuteSettings settings = wizard.getSettings();
+
+        String fileName = inputFileText.getText();
+        settings.setInputFile(fileName);
+        settings.setLogLevel(CommonUtils.valueOf(MySQLScriptExecuteSettings.LogLevel.class, logLevelCombo.getText()));
+    }
+
+    @Override
     protected void updateState()
     {
-        String fileName = inputFileText.getText();
-        wizard.setInputFile(CommonUtils.isEmpty(fileName) ? null : new File(fileName));
-
+        saveState();
         getContainer().updateButtons();
     }
 

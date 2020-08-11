@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@ package org.jkiss.dbeaver.model.runtime;
 
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.IStatus;
+import org.eclipse.core.runtime.MultiStatus;
 import org.eclipse.core.runtime.Status;
 import org.eclipse.core.runtime.jobs.Job;
 import org.jkiss.dbeaver.DBException;
@@ -30,6 +31,7 @@ import org.jkiss.dbeaver.utils.GeneralUtils;
 import org.jkiss.dbeaver.utils.RuntimeUtils;
 import org.jkiss.utils.CommonUtils;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -44,6 +46,7 @@ public abstract class AbstractJob extends Job
     private DBRProgressMonitor progressMonitor;
     private volatile boolean finished = false;
     private volatile boolean blockCanceled = false;
+    private volatile long cancelTimestamp = -1;
     private AbstractJob attachedJob = null;
 
     // Attached job may be used to "overwrite" current job.
@@ -99,7 +102,13 @@ public abstract class AbstractJob extends Job
             finished = false;
             RuntimeUtils.setThreadName(getName());
 
-            return this.run(progressMonitor);
+            IStatus result = this.run(progressMonitor);
+            if (!logErrorStatus(result)) {
+                if (!result.isOK() && result != Status.CANCEL_STATUS) {
+                    log.error("Error running job '" + getName() + "' execution: " + result.getMessage());
+                }
+            }
+            return result;
         } catch (Throwable e) {
             log.error(e);
             return GeneralUtils.makeExceptionStatus(e);
@@ -110,12 +119,36 @@ public abstract class AbstractJob extends Job
         }
     }
 
+    private boolean logErrorStatus(IStatus status) {
+        if (status.getException() != null) {
+            log.error("Error during job '" + getName() + "' execution", status.getException());
+            return true;
+        } else if (status instanceof MultiStatus) {
+            for (IStatus cStatus : status.getChildren()) {
+                if (logErrorStatus(cStatus)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     protected abstract IStatus run(DBRProgressMonitor monitor);
 
+    public boolean isCanceled() {
+        return cancelTimestamp > 0;
+    }
+
+    public long getCancelTimestamp() {
+        return cancelTimestamp;
+    }
 
     @Override
     protected void canceling()
     {
+        if (cancelTimestamp == -1) {
+            cancelTimestamp = System.currentTimeMillis();
+        }
         if (attachedJob != null) {
             attachedJob.canceling();
             return;
@@ -127,8 +160,9 @@ public abstract class AbstractJob extends Job
     }
 
     private void runBlockCanceler() {
-        final List<DBRBlockingObject> activeBlocks = progressMonitor.getActiveBlocks();
-        if (CommonUtils.isEmpty(activeBlocks)) {
+        final List<DBRBlockingObject> activeBlocks = new ArrayList<>(
+            CommonUtils.safeList(progressMonitor.getActiveBlocks()));
+        if (activeBlocks.isEmpty()) {
             // Nothing to cancel
             return;
         }
@@ -186,11 +220,11 @@ public abstract class AbstractJob extends Job
         private final DBRBlockingObject block;
 
         public JobCanceler(DBRBlockingObject block) {
-            super("Cancel block " + block);
+            super("Cancel block " + block); //$NON-N LS-1$
             this.block = block;
             setSystem(true);
             setUser(false);
-        }  //$NON-N LS-1$
+        }
 
         @Override
         protected IStatus run(IProgressMonitor monitor)
@@ -199,10 +233,10 @@ public abstract class AbstractJob extends Job
                 try {
                     BlockCanceler.cancelBlock(progressMonitor, block, getActiveThread());
                 } catch (DBException e) {
-                    log.debug("Block cancel error", e);
+                    log.debug("Block cancel error", e); //$NON-N LS-1$
                     return GeneralUtils.makeExceptionStatus(e);
                 } catch (Throwable e) {
-                    log.debug("Block cancel internal error", e);
+                    log.debug("Block cancel internal error", e); //$NON-N LS-1$
                     return Status.CANCEL_STATUS;
                 }
                 blockCanceled = true;

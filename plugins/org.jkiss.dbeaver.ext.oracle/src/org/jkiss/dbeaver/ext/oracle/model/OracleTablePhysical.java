@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -49,8 +49,6 @@ import java.util.List;
 public abstract class OracleTablePhysical extends OracleTableBase implements DBSObjectLazy<OracleDataSource>
 {
     private static final Log log = Log.getLog(OracleTablePhysical.class);
-
-    public static final String CAT_STATISTICS = "Statistics";
 
     //private boolean valid;
     private long rowCount;
@@ -211,6 +209,7 @@ public abstract class OracleTablePhysical extends OracleTableBase implements DBS
             super("PARTITION_NAME");
         }
 
+        @NotNull
         @Override
         protected JDBCStatement prepareObjectsStatement(@NotNull JDBCSession session, @NotNull OracleTablePhysical table) throws SQLException
         {

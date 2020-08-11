@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,11 +24,12 @@ import org.jkiss.dbeaver.model.impl.DBObjectNameCaseTransformer;
 import org.jkiss.dbeaver.model.impl.DBPositiveNumberTransformer;
 import org.jkiss.dbeaver.model.meta.Property;
 import org.jkiss.dbeaver.model.struct.DBSAttributeBase;
+import org.jkiss.dbeaver.model.struct.DBSTypedObjectExt2;
 
 /**
  * AbstractAttribute
  */
-public abstract class AbstractAttribute implements DBSAttributeBase, DBPToolTipObject
+public abstract class AbstractAttribute implements DBSAttributeBase, DBSTypedObjectExt2, DBPToolTipObject
 {
     protected String name;
     protected int valueType;
@@ -93,12 +94,11 @@ public abstract class AbstractAttribute implements DBSAttributeBase, DBPToolTipO
         this.name = columnName;
     }
 
-    @Property(viewable = true, order = 15)
+    @Property(viewable = true, order = 15, valueRenderer = DBPositiveNumberTransformer.class)
     public int getOrdinalPosition()
     {
         return ordinalPosition;
     }
-
 
     public void setOrdinalPosition(int ordinalPosition)
     {
@@ -117,6 +117,7 @@ public abstract class AbstractAttribute implements DBSAttributeBase, DBPToolTipO
         return DBUtils.getFullTypeName(this);
     }
 
+    @Override
     public void setTypeName(String typeName)
     {
         this.typeName = typeName;
@@ -140,6 +141,7 @@ public abstract class AbstractAttribute implements DBSAttributeBase, DBPToolTipO
         return maxLength;
     }
 
+    @Override
     public void setMaxLength(long maxLength)
     {
         this.maxLength = maxLength;
@@ -152,6 +154,7 @@ public abstract class AbstractAttribute implements DBSAttributeBase, DBPToolTipO
         return scale;
     }
 
+    @Override
     public void setScale(Integer scale)
     {
         this.scale = scale;
@@ -164,6 +167,7 @@ public abstract class AbstractAttribute implements DBSAttributeBase, DBPToolTipO
         return precision;
     }
 
+    @Override
     public void setPrecision(Integer precision)
     {
         this.precision = precision;
@@ -175,6 +179,7 @@ public abstract class AbstractAttribute implements DBSAttributeBase, DBPToolTipO
         return required;
     }
 
+    @Override
     public void setRequired(boolean required)
     {
         this.required = required;

@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -47,6 +47,11 @@ public abstract class PostgreServerExtensionBase implements PostgreServerExtensi
     }
 
     @Override
+    public boolean supportsTransactions() {
+        return true;
+    }
+
+    @Override
     public boolean supportsOids() {
         return true;
     }
@@ -73,6 +78,11 @@ public abstract class PostgreServerExtensionBase implements PostgreServerExtensi
 
     @Override
     public boolean supportsTriggers() {
+        return true;
+    }
+
+    @Override
+    public boolean supportsFunctionCreate() {
         return true;
     }
 
@@ -132,7 +142,7 @@ public abstract class PostgreServerExtensionBase implements PostgreServerExtensi
     }
 
     @Override
-    public boolean isSupportsLimits() {
+    public boolean supportsResultSetLimits() {
         return true;
     }
 
@@ -175,16 +185,14 @@ public abstract class PostgreServerExtensionBase implements PostgreServerExtensi
         } else if (kind == PostgreClass.RelKind.p) {
             return new PostgreTableRegular(schema, dbResult);
         } else {
-            log.warn("Unsupported PostgreClass '" + kind + "'");
+            log.debug("Unsupported PG class: '" + kind + "'");
             return null;
         }
     }
 
     @Override
-    public PostgreTableBase createNewRelation(PostgreSchema schema, PostgreClass.RelKind kind) {
-        if (kind == PostgreClass.RelKind.r) {
-            return new PostgreTableRegular(schema);
-        } else if (kind == PostgreClass.RelKind.v) {
+    public PostgreTableBase createNewRelation(DBRProgressMonitor monitor, PostgreSchema schema, PostgreClass.RelKind kind, Object copyFrom) throws DBException {
+        if (kind == PostgreClass.RelKind.v) {
             return new PostgreView(schema);
         } else if (kind == PostgreClass.RelKind.m) {
             return new PostgreMaterializedView(schema);
@@ -192,11 +200,10 @@ public abstract class PostgreServerExtensionBase implements PostgreServerExtensi
             return new PostgreTableForeign(schema);
         } else if (kind == PostgreClass.RelKind.S) {
             return new PostgreSequence(schema);
-        } else if (kind == PostgreClass.RelKind.t) {
-            return new PostgreTableRegular(schema);
-        } else if (kind == PostgreClass.RelKind.p) {
-            return new PostgreTableRegular(schema);
         } else {
+            if (copyFrom instanceof PostgreTableRegular) {
+                return new PostgreTableRegular(monitor, schema, (PostgreTableRegular) copyFrom);
+            }
             return new PostgreTableRegular(schema);
         }
     }
@@ -207,7 +214,7 @@ public abstract class PostgreServerExtensionBase implements PostgreServerExtensi
     }
 
     @Override
-    public boolean supportFunctionDefRead() {
+    public boolean supportsFunctionDefRead() {
         return dataSource.isServerVersionAtLeast(8, 4);
     }
 
@@ -225,7 +232,7 @@ public abstract class PostgreServerExtensionBase implements PostgreServerExtensi
             if (!alter) {
                 try {
                     final List<PostgreTableInheritance> superTables = table.getSuperInheritance(monitor);
-                    if (!CommonUtils.isEmpty(superTables)) {
+                    if (!CommonUtils.isEmpty(superTables) && ! tableBase.isPartition()) {
                         ddl.append("\nINHERITS (");
                         for (int i = 0; i < superTables.size(); i++) {
                             if (i > 0) ddl.append(",");
@@ -236,6 +243,12 @@ public abstract class PostgreServerExtensionBase implements PostgreServerExtensi
                 } catch (DBException e) {
                     log.error(e);
                 }
+                if (!CommonUtils.isEmpty(table.getPartitionKey())) {
+                    ddl.append("\nPARTITION BY ").append(table.getPartitionKey());
+                }
+            }
+            if (tableBase instanceof PostgreTablePartition && !alter) {
+                ddl.append(((PostgreTablePartition) tableBase).getPartitionExpression());                
             }
         }
 
@@ -262,9 +275,15 @@ public abstract class PostgreServerExtensionBase implements PostgreServerExtensi
         } else if (tableBase instanceof PostgreTableForeign) {
             PostgreTableForeign table = (PostgreTableForeign)tableBase;
             try {
-                PostgreForeignServer foreignServer = table.getForeignServer(monitor);
-                if (foreignServer != null ) {
-                    ddl.append("\nSERVER ").append(DBUtils.getQuotedIdentifier(foreignServer));
+                String foreignServerName = table.getForeignServerName();
+                if (CommonUtils.isEmpty(foreignServerName)) {
+                    PostgreForeignServer foreignServer = table.getForeignServer(monitor);
+                    if (foreignServer != null) {
+                        foreignServerName = DBUtils.getQuotedIdentifier(foreignServer);
+                    }
+                }
+                if (foreignServerName != null ) {
+                    ddl.append("\nSERVER ").append(foreignServerName);
                 }
                 String[] foreignOptions = table.getForeignOptions(monitor);
                 if (!ArrayUtils.isEmpty(foreignOptions)) {
@@ -310,6 +329,21 @@ public abstract class PostgreServerExtensionBase implements PostgreServerExtensi
     }
 
     @Override
+    public Map<String, String> getDataTypeAliases() {
+        return PostgreConstants.DATA_TYPE_ALIASES;
+    }
+
+    @Override
+    public boolean supportsTableStatistics() {
+        return true;
+    }
+
+    @Override
+    public boolean supportsEntityMetadataInResults() {
+        return false;
+    }
+
+    @Override
     public boolean supportsExplainPlan() {
         return true;
     }
@@ -335,6 +369,26 @@ public abstract class PostgreServerExtensionBase implements PostgreServerExtensi
         // It doesn't make sense as PG server doesn't support timezones.
         // Everything is in UTC.
         return false;
+    }
+
+    @Override
+    public boolean supportsTeblespaceLocation() {
+        return dataSource.isServerVersionAtLeast(9, 2);
+    }
+
+    @Override
+    public boolean supportsStoredProcedures() {
+        return dataSource.isServerVersionAtLeast(11, 0);
+    }
+
+    @Override
+    public String getProceduresSystemTable() {
+        return "pg_proc";
+    }
+
+    @Override
+    public String getProceduresOidColumn() {
+        return "oid";
     }
 
     public String createWithClause(PostgreTableRegular table, PostgreTableBase tableBase) {

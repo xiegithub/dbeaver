@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,9 +24,11 @@ import org.jkiss.dbeaver.model.DBUtils;
 import org.jkiss.dbeaver.model.edit.DBECommandContext;
 import org.jkiss.dbeaver.model.edit.DBEObjectRenamer;
 import org.jkiss.dbeaver.model.edit.DBEPersistAction;
-import org.jkiss.dbeaver.model.impl.DBSObjectCache;
+import org.jkiss.dbeaver.model.exec.DBCExecutionContext;
 import org.jkiss.dbeaver.model.impl.edit.SQLDatabasePersistAction;
+import org.jkiss.dbeaver.model.impl.sql.edit.struct.SQLTableManager;
 import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
+import org.jkiss.dbeaver.model.struct.cache.DBSObjectCache;
 import org.jkiss.utils.CommonUtils;
 
 import java.util.List;
@@ -49,9 +51,9 @@ public class PostgreViewManager extends PostgreTableManagerBase implements DBEOb
 
     @Nullable
     @Override
-    public DBSObjectCache<PostgreSchema, PostgreTableBase> getObjectsCache(PostgreTableBase object)
+    public DBSObjectCache<PostgreTableContainer, PostgreTableBase> getObjectsCache(PostgreTableBase object)
     {
-        return object.getContainer().tableCache;
+        return object.getContainer().getSchema().tableCache;
     }
 
     @Override
@@ -65,31 +67,32 @@ public class PostgreViewManager extends PostgreTableManagerBase implements DBEOb
     }
 
     @Override
-    protected PostgreViewBase createDatabaseObject(DBRProgressMonitor monitor, DBECommandContext context, PostgreSchema parent, Object copyFrom)
+    protected String getBaseObjectName() {
+        return SQLTableManager.BASE_VIEW_NAME;
+    }
+
+    @Override
+    protected PostgreViewBase createDatabaseObject(DBRProgressMonitor monitor, DBECommandContext context, Object container, Object copyFrom, Map<String, Object> options)
     {
-        PostgreView newView = new PostgreView(parent);
-        try {
-            newView.setName(getNewChildName(monitor, parent, "new_view"));
-        } catch (DBException e) {
-            // Never be here
-            log.error(e);
-        }
+        PostgreSchema schema = (PostgreSchema) container;
+        PostgreView newView = new PostgreView(schema);
+        setNewObjectName(monitor, schema, newView);
         return newView;
     }
 
     @Override
-    protected void addStructObjectCreateActions(DBRProgressMonitor monitor, List<DBEPersistAction> actions, StructCreateCommand command, Map<String, Object> options) throws DBException {
+    protected void addStructObjectCreateActions(DBRProgressMonitor monitor, DBCExecutionContext executionContext, List<DBEPersistAction> actions, StructCreateCommand command, Map<String, Object> options) throws DBException {
         createOrReplaceViewQuery(monitor, actions, (PostgreViewBase) command.getObject());
-        addObjectExtraActions(monitor, actions, command, options);
+        addObjectExtraActions(monitor, executionContext, actions, command, options);
     }
 
     @Override
-    protected void addObjectModifyActions(DBRProgressMonitor monitor, List<DBEPersistAction> actionList, ObjectChangeCommand command, Map<String, Object> options) throws DBException {
+    protected void addObjectModifyActions(DBRProgressMonitor monitor, DBCExecutionContext executionContext, List<DBEPersistAction> actionList, ObjectChangeCommand command, Map<String, Object> options) throws DBException {
         createOrReplaceViewQuery(monitor, actionList, (PostgreViewBase) command.getObject());
     }
 
     @Override
-    protected void addObjectDeleteActions(List<DBEPersistAction> actions, ObjectDeleteCommand command, Map<String, Object> options)
+    protected void addObjectDeleteActions(DBRProgressMonitor monitor, DBCExecutionContext executionContext, List<DBEPersistAction> actions, ObjectDeleteCommand command, Map<String, Object> options)
     {
         PostgreViewBase view = (PostgreViewBase)command.getObject();
         actions.add(
@@ -102,24 +105,25 @@ public class PostgreViewManager extends PostgreTableManagerBase implements DBEOb
     }
 
     protected void createOrReplaceViewQuery(DBRProgressMonitor monitor, List<DBEPersistAction> actions, PostgreViewBase view) throws DBException {
-        if (!CommonUtils.isEmpty(view.getSource())) {
-            // Source may be empty if it wasn't yet read. Then it definitely wasn't changed
-            String sql = view.getSource().trim();
-            if (!sql.toLowerCase(Locale.ENGLISH).startsWith("create")) {
-                StringBuilder sqlBuf = new StringBuilder();
-                sqlBuf.append("CREATE ");
-                if (!(view instanceof PostgreMaterializedView)) {
-                    sqlBuf.append("OR REPLACE ");
-                }
-                sqlBuf.append(view.getViewType()).append(" ").append(DBUtils.getObjectFullName(view, DBPEvaluationContext.DDL));
-                appendViewDeclarationPrefix(monitor, sqlBuf, view);
-                sqlBuf.append("\nAS ").append(sql);
-                appendViewDeclarationPostfix(monitor, sqlBuf, view);
-                sql = sqlBuf.toString();
-            }
-            actions.add(
-                new SQLDatabasePersistAction("Create view", sql));
+        if (CommonUtils.isEmpty(view.getSource())) {
+            throw new DBException("View '" + view.getName() + "' definition is empty");
         }
+        // Source may be empty if it wasn't yet read. Then it definitely wasn't changed
+        String sql = view.getSource().trim();
+        if (!sql.toLowerCase(Locale.ENGLISH).startsWith("create")) {
+            StringBuilder sqlBuf = new StringBuilder();
+            sqlBuf.append("CREATE ");
+            if (!(view instanceof PostgreMaterializedView)) {
+                sqlBuf.append("OR REPLACE ");
+            }
+            sqlBuf.append(view.getViewType()).append(" ").append(DBUtils.getObjectFullName(view, DBPEvaluationContext.DDL));
+            appendViewDeclarationPrefix(monitor, sqlBuf, view);
+            sqlBuf.append("\nAS ").append(sql);
+            appendViewDeclarationPostfix(monitor, sqlBuf, view);
+            sql = sqlBuf.toString();
+        }
+        actions.add(
+            new SQLDatabasePersistAction("Create view", sql));
     }
 
     public void appendViewDeclarationPrefix(DBRProgressMonitor monitor, StringBuilder sqlBuf, PostgreViewBase view) throws DBException {
@@ -136,13 +140,13 @@ public class PostgreViewManager extends PostgreTableManagerBase implements DBEOb
     }
 
     @Override
-    protected void addObjectRenameActions(DBRProgressMonitor monitor, List<DBEPersistAction> actions, ObjectRenameCommand command, Map<String, Object> options)
+    protected void addObjectRenameActions(DBRProgressMonitor monitor, DBCExecutionContext executionContext, List<DBEPersistAction> actions, ObjectRenameCommand command, Map<String, Object> options)
     {
-        PostgreTableBase view = command.getObject();
+        PostgreViewBase view = (PostgreViewBase) command.getObject();
         actions.add(
             new SQLDatabasePersistAction(
                 "Rename view",
-                "ALTER VIEW " + DBUtils.getQuotedIdentifier(view.getSchema()) + "." + DBUtils.getQuotedIdentifier(view.getDataSource(), command.getOldName()) + //$NON-NLS-1$
+                "ALTER " + view.getViewType() + " " + DBUtils.getQuotedIdentifier(view.getSchema()) + "." + DBUtils.getQuotedIdentifier(view.getDataSource(), command.getOldName()) + //$NON-NLS-1$
                     " RENAME TO " + DBUtils.getQuotedIdentifier(view.getDataSource(), command.getNewName())) //$NON-NLS-1$
         );
     }

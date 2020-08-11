@@ -1,6 +1,6 @@
 /*
  * DBeaver - Universal Database Manager
- * Copyright (C) 2010-2019 Serge Rider (serge@jkiss.org)
+ * Copyright (C) 2010-2020 DBeaver Corp and others
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -68,14 +68,22 @@ public abstract class AbstractCommandContext implements DBECommandContext {
     public boolean isDirty()
     {
         synchronized (commands) {
-            return !getCommandQueues().isEmpty();
+            for (CommandQueue queue : getCommandQueues()) {
+                if (!queue.isEmpty()) {
+                    return true;
+                }
+            }
+            return false;
         }
     }
 
     @Override
     public void saveChanges(DBRProgressMonitor monitor, Map<String, Object> options) throws DBException {
         if (!executionContext.isConnected()) {
-            throw new DBException("Context [" + executionContext.getContextName() + "] isn't connected to the database");
+            executionContext.invalidateContext(monitor, false);
+            if (!executionContext.isConnected()) {
+                throw new DBException("Context [" + executionContext.getContextName() + "] isn't connected to the database");
+            }
         }
 
         // Execute commands in transaction
@@ -87,14 +95,14 @@ public abstract class AbstractCommandContext implements DBECommandContext {
             Map<String, Object> validateOptions = new HashMap<>();
             for (CommandQueue queue : getCommandQueues()) {
                 for (CommandInfo cmd : queue.commands) {
-                    cmd.command.validateCommand(validateOptions);
+                    cmd.command.validateCommand(monitor, validateOptions);
                 }
             }
             useAutoCommit = CommonUtils.getOption(validateOptions, OPTION_AVOID_TRANSACTIONS);
         }
 
         boolean oldAutoCommit = false;
-        if (txnManager != null) {
+        if (txnManager != null && txnManager.isSupportsTransactions()) {
             oldAutoCommit = txnManager.isAutoCommit();
             if (oldAutoCommit != useAutoCommit) {
                 try {
@@ -105,10 +113,10 @@ public abstract class AbstractCommandContext implements DBECommandContext {
             }
         }
         try {
-            executeCommands(monitor, options);
+            executeCommands(monitor, options, useAutoCommit ? null : txnManager);
 
             // Commit changes
-            if (txnManager != null && !useAutoCommit) {
+            if (txnManager != null && txnManager.isSupportsTransactions() && !txnManager.isAutoCommit()) {
                 try (DBCSession session = executionContext.openSession(monitor, DBCExecutionPurpose.UTIL, "Commit script transaction")) {
                     txnManager.commit(session);
                 } catch (DBCException e1) {
@@ -119,7 +127,7 @@ public abstract class AbstractCommandContext implements DBECommandContext {
             clearCommandQueues();
         } catch (Throwable e) {
             // Rollback changes
-            if (txnManager != null && !useAutoCommit) {
+            if (txnManager != null && txnManager.isSupportsTransactions() && !txnManager.isAutoCommit()) {
                 try (DBCSession session = executionContext.openSession(monitor, DBCExecutionPurpose.UTIL, "Rollback script transaction")) {
                     txnManager.rollback(session, null);
                 } catch (DBCException e1) {
@@ -128,7 +136,7 @@ public abstract class AbstractCommandContext implements DBECommandContext {
             }
             throw e;
         } finally {
-            if (txnManager != null && oldAutoCommit != useAutoCommit) {
+            if (txnManager != null && txnManager.isSupportsTransactions() && oldAutoCommit != useAutoCommit) {
                 try {
                     txnManager.setAutoCommit(monitor, oldAutoCommit);
                 } catch (DBCException e) {
@@ -138,7 +146,7 @@ public abstract class AbstractCommandContext implements DBECommandContext {
         }
     }
 
-    private void executeCommands(DBRProgressMonitor monitor, Map<String, Object> options) throws DBException {
+    private void executeCommands(DBRProgressMonitor monitor, Map<String, Object> options, DBCTransactionManager txnManager) throws DBException {
         List<CommandQueue> commandQueues = getCommandQueues();
 
         // Execute commands
@@ -158,7 +166,7 @@ public abstract class AbstractCommandContext implements DBECommandContext {
                     if (!cmd.executed) {
                         // Persist changes
                         //if (CommonUtils.isEmpty(cmd.persistActions)) {
-                            DBEPersistAction[] persistActions = cmd.command.getPersistActions(monitor, options);
+                            DBEPersistAction[] persistActions = cmd.command.getPersistActions(monitor, executionContext, options);
                             if (!ArrayUtils.isEmpty(persistActions)) {
                                 cmd.persistActions = new ArrayList<>(persistActions.length);
                                 for (DBEPersistAction action : persistActions) {
@@ -196,6 +204,10 @@ public abstract class AbstractCommandContext implements DBECommandContext {
                                 }
                                 if (error != null) {
                                     throw error;
+                                }
+                                if (txnManager != null && txnManager.isSupportsTransactions() && !txnManager.isAutoCommit()) {
+                                    // Commit all processed changes
+                                    txnManager.commit(session);
                                 }
                             }
                             cmd.executed = true;
@@ -685,6 +697,18 @@ public abstract class AbstractCommandContext implements DBECommandContext {
             }
         }
 
+        // Move rename commands in the head (#7512)
+        for (CommandQueue queue : commandQueues) {
+            int headIndex = 0;
+            for (CommandInfo cmd : new ArrayList<>(queue.commands)) {
+                if (cmd.mergedBy == null && cmd.command instanceof DBECommandRename) {
+                    queue.commands.remove(cmd);
+                    queue.commands.add(headIndex++, cmd);
+                }
+            }
+        }
+
+
         return commandQueues;
     }
 
@@ -731,6 +755,11 @@ public abstract class AbstractCommandContext implements DBECommandContext {
         {
             this.command = command;
             this.reflector = reflector;
+        }
+
+        @Override
+        public String toString() {
+            return command.toString() + " [executed=" + executed + ";merged by: " + mergedBy + "]";
         }
     }
 
